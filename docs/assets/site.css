@@ -375,6 +375,105 @@ section {
   color: var(--amber) !important;
 }
 
+.system-flow {
+  display: grid;
+  gap: 0.65rem;
+  padding: clamp(1rem, 3vw, 1.6rem);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(7, 16, 20, 0.58);
+}
+
+.system-lane {
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr) auto minmax(0, 1.25fr) auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: 0.7rem;
+}
+
+.client-lane {
+  grid-template-columns: 116px minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
+.lane-label {
+  display: flex;
+  align-items: center;
+  color: var(--subtle);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+}
+
+.system-node {
+  display: grid;
+  min-height: 76px;
+  align-content: center;
+  gap: 0.2rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.system-node strong {
+  font-size: 0.9rem;
+}
+
+.system-node small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.system-node.emphasis {
+  border-color: rgba(102, 217, 208, 0.55);
+  background: var(--cyan-soft);
+}
+
+.system-node.hot {
+  border-color: rgba(255, 180, 84, 0.62);
+  background: var(--amber-soft);
+}
+
+.system-arrow {
+  display: grid;
+  place-items: center;
+  color: var(--cyan);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-weight: 800;
+}
+
+.lane-transfer {
+  display: flex;
+  justify-content: space-between;
+  padding-left: 116px;
+  color: var(--subtle);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.67rem;
+}
+
+.metric-rail {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 0.75rem;
+  margin: 0.3rem 0 0 116px;
+}
+
+.metric-rail span {
+  padding-top: 0.6rem;
+  border-top: 2px solid var(--cyan);
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.metric-rail span:last-child {
+  border-color: var(--amber);
+}
+
+.metric-rail b {
+  color: var(--ink);
+}
+
 .flow {
   position: relative;
   display: grid;
@@ -434,6 +533,73 @@ section {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 0.72rem;
   font-weight: 700;
+}
+
+.decision-map {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto minmax(150px, 1.2fr) auto minmax(140px, 1fr) auto minmax(135px, 1fr) auto minmax(125px, 0.9fr);
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px dashed rgba(102, 217, 208, 0.34);
+  border-radius: 15px;
+  background: rgba(102, 217, 208, 0.035);
+}
+
+.decision-node {
+  display: grid;
+  min-height: 78px;
+  align-content: center;
+  gap: 0.2rem;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.decision-node span {
+  color: var(--subtle);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.decision-node strong {
+  font-size: 0.78rem;
+}
+
+.decision-node.gate-node {
+  border-color: var(--amber);
+  background: var(--amber-soft);
+}
+
+.decision-node.target,
+.decision-node.portal {
+  border-color: rgba(123, 216, 143, 0.5);
+}
+
+.decision-arrow {
+  color: var(--subtle);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.68rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.decision-arrow.pass {
+  color: var(--green);
+}
+
+.reject-loop {
+  grid-column: 1 / 6;
+  padding-top: 0.25rem;
+  color: var(--red);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.68rem;
+  text-align: center;
 }
 
 .calculator {
@@ -510,6 +676,50 @@ input[type="number"]:focus {
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+
+.score-components {
+  display: grid;
+  gap: 0.75rem;
+  width: min(100%, 390px);
+  margin: 1.5rem auto 0;
+  text-align: left;
+}
+
+.score-component > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.score-component strong {
+  color: var(--ink);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.component-track {
+  display: block;
+  height: 7px;
+  margin-top: 0.35rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+.component-track > span {
+  display: block;
+  width: 81.9%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--cyan);
+  transition: width 180ms ease;
+}
+
+.tpot-component .component-track > span {
+  width: 44.4%;
+  background: var(--amber);
 }
 
 .score-note {
@@ -628,6 +838,104 @@ input[type="number"]:focus {
   color: var(--muted);
   font-size: 0.74rem;
   font-weight: 700;
+}
+
+.compact-head {
+  margin-bottom: 1.7rem;
+}
+
+.knowledge-map {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 1.5rem;
+}
+
+.knowledge-stage {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.4rem;
+  padding-top: 1.8rem;
+}
+
+.stage-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: var(--amber);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.knowledge-node {
+  display: grid;
+  min-width: 0;
+  min-height: 82px;
+  align-content: center;
+  gap: 0.25rem;
+  padding: 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.knowledge-node:hover {
+  border-color: var(--cyan);
+  background: var(--cyan-soft);
+}
+
+.knowledge-node b {
+  color: var(--cyan);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.68rem;
+}
+
+.knowledge-node span {
+  overflow-wrap: anywhere;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.knowledge-arrow,
+.stage-connector {
+  color: var(--subtle);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.stage-connector {
+  position: relative;
+  align-self: center;
+  margin-inline: -1.15rem;
+  color: var(--amber);
+  transform: rotate(-90deg);
+}
+
+.method-stage {
+  grid-template-columns: minmax(0, 0.8fr) minmax(110px, 1.2fr);
+}
+
+.method-stage small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.final-node {
+  border-color: rgba(123, 216, 143, 0.5);
+  background: rgba(123, 216, 143, 0.08);
+}
+
+.lessons-section {
+  padding-top: 4rem;
 }
 
 .learning-layout {
@@ -798,6 +1106,50 @@ input[type="number"]:focus {
     display: none;
   }
 
+  .system-lane,
+  .client-lane {
+    grid-template-columns: 96px minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  }
+
+  .client-lane {
+    grid-template-columns: 96px minmax(0, 1fr) auto minmax(0, 1fr);
+  }
+
+  .lane-transfer {
+    padding-left: 96px;
+  }
+
+  .metric-rail {
+    margin-left: 96px;
+  }
+
+  .decision-map {
+    grid-template-columns: 1fr;
+  }
+
+  .decision-arrow {
+    justify-self: center;
+    transform: rotate(90deg);
+  }
+
+  .decision-arrow.pass {
+    transform: none;
+  }
+
+  .decision-node.target,
+  .decision-node.portal,
+  .reject-loop {
+    grid-column: 1;
+  }
+
+  .knowledge-map {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stage-connector {
+    display: none;
+  }
+
   .toc {
     position: static;
     display: grid;
@@ -860,6 +1212,51 @@ input[type="number"]:focus {
 
   .flow-card {
     min-height: auto;
+  }
+
+  .system-flow {
+    gap: 0.8rem;
+  }
+
+  .system-lane,
+  .client-lane {
+    grid-template-columns: 1fr;
+  }
+
+  .lane-label {
+    padding-top: 0.35rem;
+    border-top: 1px solid var(--line);
+  }
+
+  .system-arrow {
+    transform: rotate(90deg);
+  }
+
+  .system-arrow.client-return {
+    transform: none;
+  }
+
+  .lane-transfer {
+    padding-left: 0;
+  }
+
+  .metric-rail {
+    grid-template-columns: 1fr;
+    margin-left: 0;
+  }
+
+  .knowledge-map {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+
+  .knowledge-stage,
+  .method-stage {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  }
+
+  .method-stage {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .lesson {

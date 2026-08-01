@@ -85,11 +85,53 @@
         </div>
       </section>
 
+      <section class="section" id="dataflow">
+        <div class="shell">
+          <div class="section-head">
+            <div>
+              <span class="section-index">01 / REQUEST DATA FLOW</span>
+              <h2>Một request đi qua đâu?</h2>
+            </div>
+            <p class="section-copy">Tách CPU control plane khỏi GPU execution plane để biết một millisecond thuộc queueing, launch/sync, memory movement hay model execution.</p>
+          </div>
+          <div class="system-flow reveal" role="img" aria-label="Luồng request từ client qua CPU frontend, vLLM scheduler, GPU prefill và decode, rồi quay về CPU để stream token">
+            <div class="system-lane client-lane">
+              <span class="lane-label">CLIENT</span>
+              <div class="system-node"><strong>Prompt</strong><small>Poisson arrival</small></div>
+              <span class="system-arrow client-return" aria-hidden="true">↔</span>
+              <div class="system-node"><strong>HTTP stream</strong><small>first → last token</small></div>
+            </div>
+            <div class="lane-transfer down"><span>request bytes ↓</span><span>↑ token bytes</span></div>
+            <div class="system-lane cpu-lane">
+              <span class="lane-label">CPU · 3 vCPU</span>
+              <div class="system-node"><strong>Tokenize</strong><small>prompt → token IDs</small></div>
+              <span class="system-arrow" aria-hidden="true">→</span>
+              <div class="system-node emphasis"><strong>Queue + scheduler</strong><small>continuous batching</small></div>
+              <span class="system-arrow" aria-hidden="true">→</span>
+              <div class="system-node"><strong>Detokenize</strong><small>IDs → text</small></div>
+            </div>
+            <div class="lane-transfer"><span>CUDA enqueue ↓</span><span>↑ sampled token ID</span></div>
+            <div class="system-lane gpu-lane">
+              <span class="lane-label">GPU · VRAM</span>
+              <div class="system-node"><strong>Prefill</strong><small>prompt tokens · TTFT</small></div>
+              <span class="system-arrow" aria-hidden="true">→</span>
+              <div class="system-node hot"><strong>Decode × N</strong><small>one token / sequence / step</small></div>
+              <span class="system-arrow" aria-hidden="true">↔</span>
+              <div class="system-node"><strong>Model state</strong><small>KV cache + ShortConv</small></div>
+            </div>
+            <div class="metric-rail" aria-hidden="true">
+              <span><b>TTFT</b> submit → first token</span>
+              <span><b>TPOT / ITL</b> repeated decode + stream cadence</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section class="section" id="flow">
         <div class="shell">
           <div class="section-head">
             <div>
-              <span class="section-index">01 / EXPERIMENT FLOW</span>
+              <span class="section-index">02 / EXPERIMENT FLOW</span>
               <h2>Năm gates trước portal</h2>
             </div>
             <p class="section-copy">Mỗi gate loại một kiểu self-deception. Chỉ candidate đã qua correctness, target-shaped profiling và repeated A/B mới xứng đáng dùng submission có giới hạn.</p>
@@ -126,6 +168,18 @@
               <span class="gate">PASS: repeatable portal improvement</span>
             </article>
           </div>
+          <div class="decision-map reveal" aria-label="Vòng lặp ra quyết định cho mỗi tối ưu">
+            <div class="decision-node hypothesis"><span>HYPOTHESIS</span><strong>Một thay đổi</strong></div>
+            <span class="decision-arrow" aria-hidden="true">→</span>
+            <div class="decision-node local"><span>RTX 4080S</span><strong>Correctness + profile</strong></div>
+            <span class="decision-arrow" aria-hidden="true">→</span>
+            <div class="decision-node gate-node"><span>EVIDENCE GATE</span><strong>Gain &gt; noise?</strong></div>
+            <span class="decision-arrow pass" aria-hidden="true">PASS →</span>
+            <div class="decision-node target"><span>H200 MIG</span><strong>Repeated A/B</strong></div>
+            <span class="decision-arrow" aria-hidden="true">→</span>
+            <div class="decision-node portal"><span>PORTAL</span><strong>Promote / reject</strong></div>
+            <div class="reject-loop"><span>FAIL → log evidence → revise hypothesis ↺</span></div>
+          </div>
         </div>
       </section>
 
@@ -133,7 +187,7 @@
         <div class="shell">
           <div class="section-head">
             <div>
-              <span class="section-index">02 / SCORE</span>
+              <span class="section-index">03 / SCORE</span>
               <h2>ERS calculator</h2>
             </div>
             <p class="section-copy">Calculator này cố tình bám đúng công thức trong bài viết để phát hiện mâu thuẫn. Trước contest thật, thay bằng evaluator specification chính thức.</p>
@@ -152,6 +206,16 @@
             <div class="panel score-readout" aria-live="polite">
               <span class="score" data-score>63.19</span>
               <span class="score-label">Effective Request Score</span>
+              <div class="score-components" aria-label="Phân rã đóng góp ERS theo TTFT và TPOT">
+                <div class="score-component">
+                  <div><span>TTFT contribution</span><strong data-ttft-contribution>40.96</strong></div>
+                  <span class="component-track"><span data-ttft-bar></span></span>
+                </div>
+                <div class="score-component tpot-component">
+                  <div><span>TPOT contribution</span><strong data-tpot-contribution>22.22</strong></div>
+                  <span class="component-track"><span data-tpot-bar></span></span>
+                </div>
+              </div>
               <p class="score-note" data-score-detail>Mốc 72 ERS: còn thiếu 8.81.</p>
             </div>
           </div>
@@ -162,7 +226,7 @@
         <div class="shell">
           <div class="section-head">
             <div>
-              <span class="section-index">03 / HARDWARE FIDELITY</span>
+              <span class="section-index">04 / HARDWARE FIDELITY</span>
               <h2>Một lab, hai vai trò</h2>
             </div>
             <p class="section-copy">RTX 4080 Super rất hữu ích, nhưng câu hỏi nó trả lời khác H200 MIG. Tách “candidate filter” khỏi “contest verdict” để tránh benchmark proxy.</p>
@@ -196,7 +260,7 @@
         <div class="shell">
           <div class="section-head">
             <div>
-              <span class="section-index">04 / PRIORITY QUEUE</span>
+              <span class="section-index">05 / PRIORITY QUEUE</span>
               <h2>Expected value trước novelty</h2>
             </div>
             <p class="section-copy">Một integration regression 63→51 có giá trị điều tra lớn hơn ba custom kernels cho tổng cộng ~1%. Tối ưu score, không tối ưu độ thú vị của patch.</p>

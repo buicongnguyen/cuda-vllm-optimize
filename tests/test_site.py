@@ -21,6 +21,18 @@ class SiteCheckTests(unittest.TestCase):
             errors = check_site(root)
             self.assertTrue(any("missing local target" in error for error in errors))
 
+    def test_visual_flows_are_present(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        experiment = (root / "docs" / "index.html").read_text(encoding="utf-8")
+        learning = (root / "docs" / "learn.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="dataflow"', experiment)
+        self.assertIn('class="decision-map reveal"', experiment)
+        self.assertIn("data-ttft-contribution", experiment)
+        self.assertIn('class="knowledge-map reveal"', learning)
+        for module in range(10):
+            self.assertIn(f'href="#m{module}"', learning)
+
 
 if __name__ == "__main__":
     unittest.main()

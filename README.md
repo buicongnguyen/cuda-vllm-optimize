@@ -42,6 +42,11 @@ configs/                workload và vLLM args mẫu, có ghi rõ phần chưa b
 docs/                   GitHub Pages site + analysis, decision flow, score strategy
 ```
 
+Website có request data-flow map, experiment decision loop, ERS contribution
+chart tương tác và prerequisite graph cho 10 learning modules. Các biểu đồ chỉ
+thể hiện quan hệ đã kiểm chứng hoặc số được tính trực tiếp từ input; chúng không
+biến roofline estimate thành benchmark measurement.
+
 Repo không giả vờ cung cấp Triton kernels chưa được kiểm tra trên SM90 MIG, không
 chép mã từ fork bên ngoài, và không gọi một config là “winning config” khi chưa
 có raw evaluator output.
@@ -84,5 +89,5 @@ lambda. Phải thay bằng tham số chính thức trước khi dùng kết qu�
 
 ## Trạng thái
 
-Đây là analysis/harness repo sẵn sàng đưa lên GitHub. Nó chưa phải fork vLLM và
-chưa được benchmark trên GPU của cuộc thi trong workspace hiện tại.
+Đây là analysis/harness repo đã được publish bằng GitHub Pages. Nó chưa phải fork
+vLLM và chưa được benchmark trên GPU của cuộc thi trong workspace hiện tại.

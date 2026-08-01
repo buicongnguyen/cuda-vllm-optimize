@@ -43,6 +43,52 @@
       </section>
 
       <section class="section">
+        <div class="shell">
+          <div class="section-head compact-head">
+            <div>
+              <span class="section-index">READING FLOW</span>
+              <h2>Bản đồ kiến thức</h2>
+            </div>
+            <p class="section-copy">Đi từ vocabulary của request, xuống execution hardware, lên serving engine, rồi mới viết optimization và thiết kế experiment.</p>
+          </div>
+          <nav class="knowledge-map reveal" id="knowledge-map" aria-label="Dependency graph của learning path">
+            <div class="knowledge-stage foundation-stage">
+              <span class="stage-label">FOUNDATION</span>
+              <a class="knowledge-node" href="#m0"><b>00</b><span>Serving map</span></a>
+              <span class="knowledge-arrow" aria-hidden="true">→</span>
+              <a class="knowledge-node" href="#m1"><b>01</b><span>Metrics</span></a>
+              <span class="knowledge-arrow" aria-hidden="true">→</span>
+              <a class="knowledge-node" href="#m2"><b>02</b><span>LLM inference</span></a>
+            </div>
+            <span class="stage-connector" aria-hidden="true">↓</span>
+            <div class="knowledge-stage execution-stage">
+              <span class="stage-label">EXECUTION</span>
+              <a class="knowledge-node" href="#m3"><b>03</b><span>GPU hardware</span></a>
+              <span class="knowledge-arrow" aria-hidden="true">→</span>
+              <a class="knowledge-node" href="#m4"><b>04</b><span>CUDA + Graphs</span></a>
+              <span class="knowledge-arrow" aria-hidden="true">→</span>
+              <a class="knowledge-node" href="#m5"><b>05</b><span>Nsight evidence</span></a>
+            </div>
+            <span class="stage-connector" aria-hidden="true">↓</span>
+            <div class="knowledge-stage optimization-stage">
+              <span class="stage-label">OPTIMIZATION</span>
+              <a class="knowledge-node" href="#m6"><b>06</b><span>vLLM internals</span></a>
+              <span class="knowledge-arrow" aria-hidden="true">→</span>
+              <a class="knowledge-node" href="#m7"><b>07</b><span>Precision / FP8</span></a>
+              <span class="knowledge-arrow" aria-hidden="true">→</span>
+              <a class="knowledge-node" href="#m8"><b>08</b><span>Triton fusion</span></a>
+            </div>
+            <span class="stage-connector" aria-hidden="true">↓</span>
+            <div class="knowledge-stage method-stage">
+              <span class="stage-label">METHOD</span>
+              <a class="knowledge-node final-node" href="#m9"><b>09</b><span>Experiment method</span></a>
+              <small>Integrate metrics + profiling + serving + hardware fidelity</small>
+            </div>
+          </nav>
+        </div>
+      </section>
+
+      <section class="section lessons-section">
         <div class="shell learning-layout">
           <aside class="toc" aria-label="Mục lục learning path">
             <strong>Reading order</strong>

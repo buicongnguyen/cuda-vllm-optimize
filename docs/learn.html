@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Learning path có thứ tự để hiểu LLM inference, GPU, CUDA Graph, Nsight, vLLM, quantization và Triton.">
+    <meta name="theme-color" content="#071014">
+    <title>LFM RaceBench — Learning path</title>
+    <link rel="stylesheet" href="assets/site.css">
+    <script src="assets/site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#content">Đi đến nội dung</a>
+    <header class="site-header">
+      <nav class="nav shell" aria-label="Điều hướng chính">
+        <a class="brand" href="index.html">
+          <span class="brand-mark" aria-hidden="true">RB</span>
+          <span>LFM RaceBench</span>
+        </a>
+        <button class="nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="main-nav" aria-label="Mở menu">☰</button>
+        <div class="nav-links" id="main-nav" data-nav-links>
+          <a href="index.html">Experiment</a>
+          <a href="learn.html" aria-current="page">Learning path</a>
+          <a href="#glossary">Glossary</a>
+          <a href="https://github.com/buicongnguyen/cuda-vllm-optimize">GitHub ↗</a>
+        </div>
+      </nav>
+    </header>
+
+    <main id="content">
+      <section class="hero learning-hero">
+        <div class="shell">
+          <p class="eyebrow">Prerequisite graph · 10 modules</p>
+          <h1>Từ một request đến một <span>GPU timeline.</span></h1>
+          <p class="lede">Đọc theo thứ tự này để mỗi thuật ngữ mới dựa trên một mental model đã có. Mục tiêu không phải nhớ flag—mà là giải thích được một millisecond đã đi đâu.</p>
+          <div class="path-legend" aria-label="Các giai đoạn học">
+            <span>Foundation · 0–2</span>
+            <span>Execution · 3–5</span>
+            <span>Optimization · 6–8</span>
+            <span>Method · 9</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="shell learning-layout">
+          <aside class="toc" aria-label="Mục lục learning path">
+            <strong>Reading order</strong>
+            <a href="#m0">00 · Serving map</a>
+            <a href="#m1">01 · Metrics</a>
+            <a href="#m2">02 · LLM inference</a>
+            <a href="#m3">03 · GPU hardware</a>
+            <a href="#m4">04 · CUDA execution</a>
+            <a href="#m5">05 · Nsight</a>
+            <a href="#m6">06 · vLLM</a>
+            <a href="#m7">07 · Precision</a>
+            <a href="#m8">08 · Triton</a>
+            <a href="#m9">09 · Experiment method</a>
+            <a href="#glossary">Glossary</a>
+          </aside>
+
+          <div class="lesson-list">
+            <article class="lesson reveal" id="m0">
+              <span class="lesson-number">00</span>
+              <div>
+                <span class="time">45 MIN · START HERE</span>
+                <h2>Serving map: request đi qua đâu?</h2>
+                <p>Bắt đầu từ toàn pipeline. Client gửi prompt → HTTP server → tokenizer → queue → scheduler → prefill → decode loop → detokenizer → streaming response. Mọi metric phía sau chỉ là timestamp hoặc rate trên đoạn đường này.</p>
+                <div class="lesson-grid">
+                  <div class="term-card"><h3>Token</h3><p>Đơn vị rời rạc mà model đọc và sinh; không đồng nhất với từ hay ký tự.</p></div>
+                  <div class="term-card"><h3>Frontend</h3><p>HTTP, validation, tokenize/detokenize và streaming—thường chạy trên CPU.</p></div>
+                  <div class="term-card"><h3>Engine</h3><p>Scheduler, cache manager và model executor phối hợp GPU work.</p></div>
+                  <div class="term-card"><h3>Critical path</h3><p>Chuỗi công việc quyết định wall-clock latency; phần song song ngoài chuỗi không cộng thẳng.</p></div>
+                </div>
+                <div class="lesson-gate"><strong>Gate:</strong> Vẽ được sequence diagram từ submit đến last token và chỉ ra CPU/GPU boundary.</div>
+              </div>
+            </article>
+
+            <article class="lesson reveal" id="m1">
+              <span class="lesson-number">01</span>
+              <div>
+                <span class="time">60 MIN · MEASUREMENT LANGUAGE</span>
+                <h2>Metrics: TTFT, TPOT và throughput</h2>
+                <p>Không tối ưu một từ viết tắt trước khi định nghĩa chính xác hai timestamp tạo ra nó. Luôn hỏi unit, aggregation, warm-up, percentile và client/server clock.</p>
+                <div class="term-grid">
+                  <div class="term-card"><h3>TTFT</h3><p>Time To First Token: submit → token đầu. Gồm queue, tokenize, prefill và first decode.</p></div>
+                  <div class="term-card"><h3>TPOT</h3><p>Time Per Output Token: thường là (last−first)/(N−1). Phải xác nhận evaluator.</p></div>
+                  <div class="term-card"><h3>ITL</h3><p>Inter-Token Latency: khoảng cách giữa từng token; cho thấy jitter mà mean TPOT che mất.</p></div>
+                  <div class="term-card"><h3>Throughput</h3><p>Tokens hoặc requests mỗi giây của cả hệ thống; có thể tăng trong khi latency một user xấu đi.</p></div>
+                  <div class="term-card"><h3>Poisson arrival</h3><p>Inter-arrival time theo exponential distribution; tạo burst/queue tự nhiên dù rate trung bình cố định.</p></div>
+                  <div class="term-card"><h3>Percentile</h3><p>p95/p99 mô tả tail. Mean không đủ cho workload có queueing và batch interference.</p></div>
+                </div>
+                <div class="lesson-gate"><strong>Gate:</strong> Tự tính TTFT/TPOT từ raw timestamps và giải thích vì sao 47/4 cho 63.19 ERS.</div>
+              </div>
+            </article>
+
+            <article class="lesson reveal" id="m2">
+              <span class="lesson-number">02</span>
+              <div>
+                <span class="time">2–3 HOURS · MODEL EXECUTION</span>
+                <h2>LLM inference: prefill, decode và state</h2>
+                <p>Prefill xử lý nhiều prompt tokens song song; decode sinh một token mỗi sequence mỗi step. Hai phase có shapes và bottleneck khác nhau. LFM2.5 còn là hybrid: 10 convolution blocks và 6 GQA attention blocks.</p>
+                <div class="term-grid">
+                  <div class="term-card"><h3>Prefill</h3><p>Đưa toàn prompt qua model, thường compute-heavy và ảnh hưởng TTFT.</p></div>
+                  <div class="term-card"><h3>Decode</h3><p>Autoregressive loop; batch nhiều sequences để amortize weight reads và launch work.</p></div>
+                  <div class="term-card"><h3>Attention</h3><p>Q truy vấn K/V của lịch sử; chi phí state tăng theo context length.</p></div>
+                  <div class="term-card"><h3>GQA</h3><p>Grouped-Query Attention: nhiều query heads chia sẻ ít KV heads để giảm cache bytes.</p></div>
+                  <div class="term-card"><h3>KV cache</h3><p>Lưu Key/Value cũ để decode không tính lại toàn prefix; capacity quyết định concurrent tokens.</p></div>
+                  <div class="term-card"><h3>ShortConv state</h3><p>Recurrent convolution state của hybrid layers; semantics rollback khác attention KV.</p></div>
+                </div>
+                <div class="lesson-gate"><strong>Gate:</strong> Tính được weight bytes và KV bytes/token từ model config; phân biệt state của attention với convolution.</div>
+              </div>
+            </article>
+
+            <article class="lesson reveal" id="m3">
+              <span class="lesson-number">03</span>
+              <div>
+                <span class="time">3 HOURS · PHYSICAL LIMITS</span>
+                <h2>GPU hardware: SM, memory và roofline</h2>
+                <p>GPU không chỉ là “TFLOPS”. Kernel bị giới hạn bởi compute, memory bandwidth, latency, occupancy hoặc launch overhead tùy shape. RTX 4080 SM89 và H200 SM90 MIG có câu trả lời khác nhau.</p>
+                <div class="term-grid">
+                  <div class="term-card"><h3>SM</h3><p>Streaming Multiprocessor: đơn vị thực thi chứa warps, registers, shared memory và schedulers.</p></div>
+                  <div class="term-card"><h3>Warp</h3><p>Nhóm 32 threads thực thi cùng instruction; divergence làm lãng phí lanes.</p></div>
+                  <div class="term-card"><h3>Registers</h3><p>Storage nhanh theo thread; dùng quá nhiều làm giảm active warps/occupancy.</p></div>
+                  <div class="term-card"><h3>HBM / GDDR</h3><p>Global GPU memory. HBM có bandwidth/behavior khác GDDR6X của RTX 4080.</p></div>
+                  <div class="term-card"><h3>Arithmetic intensity</h3><p>FLOPs trên mỗi byte memory traffic; cầu nối giữa algorithm và roofline.</p></div>
+                  <div class="term-card"><h3>MIG</h3><p>Hardware partition của datacenter GPU, chia SM/L2/memory resources và tạo target riêng.</p></div>
+                </div>
+                <div class="lesson-gate"><strong>Gate:</strong> Không gọi FLOP/peak-FLOPS là measured compute time; nêu được counter cần đo để kiểm chứng.</div>
+              </div>
+            </article>
+
+            <article class="lesson reveal" id="m4">
+              <span class="lesson-number">04</span>
+              <div>
+                <span class="time">3–4 HOURS · CUDA MENTAL MODEL</span>
+                <h2>CUDA execution: kernels, streams và graphs</h2>
+                <p>CPU enqueue GPU work; GPU thực thi bất đồng bộ. Một kernel launch không mặc nhiên là CPU↔GPU round-trip, và synchronization mới buộc host chờ. CUDA Graph gom sẵn chuỗi operations để giảm launch/scheduling overhead.</p>
+                <div class="term-grid">
+                  <div class="term-card"><h3>Kernel launch</h3><p>Host enqueue grid lên stream. Chi phí host tồn tại, nhưng không đồng nghĩa chờ kernel xong.</p></div>
+                  <div class="term-card"><h3>Grid / block</h3><p>Cách threads được nhóm và map lên SM; shape ảnh hưởng utilization và memory access.</p></div>
+                  <div class="term-card"><h3>Stream</h3><p>Ordered command queue. Nhiều streams có thể overlap nếu dependency/resources cho phép.</p></div>
+                  <div class="term-card"><h3>Synchronization</h3><p>Event/API làm host hoặc stream phải chờ; thường tạo gap rõ trên timeline.</p></div>
+                  <div class="term-card"><h3>CUDA Graph</h3><p>Capture/replay execution graph để giảm Python/driver launch work cho shapes ổn định.</p></div>
+                  <div class="term-card"><h3>Graph break</h3><p>Dynamic control/operator làm compiled/captured region bị chia, trả overhead về eager path.</p></div>
+                </div>
+                <div class="lesson-gate"><strong>Gate:</strong> Nhìn timeline và phân biệt host gap, kernel duration, synchronization và graph replay.</div>
+              </div>
+            </article>
+
+            <article class="lesson reveal" id="m5">
+              <span class="lesson-number">05</span>
+              <div>
+                <span class="time">HALF DAY · EVIDENCE TOOLS</span>
+                <h2>Nsight: Systems trước, Compute sau</h2>
+                <p>Nsight Systems trả lời “thời gian đi đâu?” trên toàn timeline. Nsight Compute trả lời “kernel này bị giới hạn bởi gì?” bằng hardware counters. Dùng đúng thứ tự để không profile chi tiết một kernel ngoài critical path.</p>
+                <div class="term-grid">
+                  <div class="term-card"><h3>Nsight Systems</h3><p>CPU threads, CUDA API, streams, kernels, NVTX và synchronization theo wall-clock.</p></div>
+                  <div class="term-card"><h3>Nsight Compute</h3><p>Kernel-level counters: occupancy, memory throughput, instructions và stalls.</p></div>
+                  <div class="term-card"><h3>NVTX</h3><p>Named ranges gắn semantic phase như prefill/decode vào low-level timeline.</p></div>
+                  <div class="term-card"><h3>Achieved bandwidth</h3><p>Bytes/s thật của kernel, khác bandwidth lý thuyết của GPU.</p></div>
+                </div>
+                <ul>
+                  <li>Profile representative warm replay, không profile mọi request.</li>
+                  <li>Giữ profiler overhead ngoài score run.</li>
+                  <li>Bucket theo batch size và prefill/decode phase.</li>
+                </ul>
+                <div class="lesson-gate"><strong>Gate:</strong> Từ Systems chọn được đúng kernel/gap; từ Compute đưa ra một hypothesis có counter hỗ trợ.</div>
+              </div>
+            </article>
+
+            <article class="lesson reveal" id="m6">
+              <span class="lesson-number">06</span>
+              <div>
+                <span class="time">1 DAY · SERVING ENGINE</span>
+                <h2>vLLM internals: batching, pages và scheduler</h2>
+                <p>vLLM tăng throughput bằng continuous batching và quản lý cache theo blocks/pages. Đọc source theo request lifecycle thay vì theo folder: frontend → scheduler → KV manager → model runner → output processing.</p>
+                <div class="term-grid">
+                  <div class="term-card"><h3>Continuous batching</h3><p>Requests vào/ra batch ở mỗi iteration; không chờ cả static batch hoàn tất.</p></div>
+                  <div class="term-card"><h3>PagedAttention</h3><p>KV cache chia blocks để giảm fragmentation và cho phép allocation linh hoạt.</p></div>
+                  <div class="term-card"><h3>Scheduler budget</h3><p>Giới hạn sequences/tokens mỗi step; cân bằng TTFT của arrivals với TPOT của decodes.</p></div>
+                  <div class="term-card"><h3>Chunked prefill</h3><p>Chia prompt dài thành chunks để tránh một prefill độc chiếm iteration.</p></div>
+                  <div class="term-card"><h3>Prefix caching</h3><p>Tái dùng computed prefix blocks; lợi ích phụ thuộc exact token prefix và eviction.</p></div>
+                  <div class="term-card"><h3>Hybrid KV manager</h3><p>Quản lý attention KV và recurrent state specs khác nhau trong cùng model.</p></div>
+                </div>
+                <div class="lesson-gate"><strong>Gate:</strong> Với một request, chỉ ra nơi queueing, block allocation, prefill scheduling và decode scheduling diễn ra.</div>
+              </div>
+            </article>
+
+            <article class="lesson reveal" id="m7">
+              <span class="lesson-number">07</span>
+              <div>
+                <span class="time">HALF DAY · NUMERICS</span>
+                <h2>Precision: BF16, FP8 và quantization</h2>
+                <p>Quantization đổi storage, bandwidth và compute path nhưng cũng thêm scale/dequant operations và numerical risk. “Ít VRAM hơn” không tự động đồng nghĩa “latency thấp hơn”.</p>
+                <div class="term-grid">
+                  <div class="term-card"><h3>BF16</h3><p>16-bit floating format với exponent rộng; baseline phổ biến cho inference.</p></div>
+                  <div class="term-card"><h3>FP8</h3><p>8-bit floating formats như E4M3/E5M2; cần scale và hardware/kernel support.</p></div>
+                  <div class="term-card"><h3>W8A8</h3><p>Weights và activations 8-bit; performance phụ thuộc fused GEMM path thật sự được chọn.</p></div>
+                  <div class="term-card"><h3>KV FP8</h3><p>Giảm khoảng một nửa attention cache bytes; capacity thường là lợi ích đầu tiên.</p></div>
+                  <div class="term-card"><h3>Scale calibration</h3><p>Chọn scale từ data để giảm clipping/underflow thay vì dùng mặc định mù quáng.</p></div>
+                  <div class="term-card"><h3>Quality gate</h3><p>Exact greedy tokens hoặc task metric/tolerance xác định optimization còn hợp lệ.</p></div>
+                </div>
+                <div class="lesson-gate"><strong>Gate:</strong> A/B weights FP8 và KV FP8 riêng; báo memory, latency và quality như ba outcomes độc lập.</div>
+              </div>
+            </article>
+
+            <article class="lesson reveal" id="m8">
+              <span class="lesson-number">08</span>
+              <div>
+                <span class="time">1–2 DAYS · KERNEL ENGINEERING</span>
+                <h2>Triton và fusion: chỉ sau profiler</h2>
+                <p>Fusion giảm launch count hoặc memory round-trips bằng cách giữ intermediate on-chip. Nhưng kernel lớn hơn có thể tăng registers, giảm occupancy và thua kernel rời—đặc biệt khi CUDA Graph đã giảm host overhead.</p>
+                <div class="term-grid">
+                  <div class="term-card"><h3>Triton program</h3><p>SPMD program instance xử lý một tile; compiler map operations xuống GPU code.</p></div>
+                  <div class="term-card"><h3>Fusion</h3><p>Kết hợp operators để tránh intermediate HBM traffic hoặc launches.</p></div>
+                  <div class="term-card"><h3>On-chip</h3><p>Registers/shared memory gần SM; nhanh nhưng capacity hữu hạn.</p></div>
+                  <div class="term-card"><h3>Autotune</h3><p>Benchmark candidate configs cho shapes/hardware cụ thể; không phải universal answer.</p></div>
+                  <div class="term-card"><h3>Fallback</h3><p>Original correct path dùng khi dtype, shape, mode hoặc architecture không phù hợp.</p></div>
+                  <div class="term-card"><h3>Property test</h3><p>So reference trên nhiều shapes/dtypes/edge values, không chỉ một golden case.</p></div>
+                </div>
+                <div class="lesson-gate"><strong>Gate:</strong> Kernel thắng correctness matrix, shape matrix và end-to-end A/B trên đúng SM target.</div>
+              </div>
+            </article>
+
+            <article class="lesson reveal" id="m9">
+              <span class="lesson-number">09</span>
+              <div>
+                <span class="time">ONGOING · SCIENTIFIC CONTROL</span>
+                <h2>Experiment method: biến submission thành thông tin</h2>
+                <p>Pin artifact, đổi một biến, randomize A/B order, ghi raw data và định nghĩa kill criterion trước khi chạy. Một integration bundle có thể là release candidate nhưng không thể chứng minh từng optimization.</p>
+                <div class="term-grid">
+                  <div class="term-card"><h3>Baseline</h3><p>Artifact/config reference có thể tái lập, không chỉ một con số trong notebook.</p></div>
+                  <div class="term-card"><h3>Noise floor</h3><p>Mức variation tự nhiên; gain nhỏ hơn mức này chưa có ý nghĩa thực nghiệm.</p></div>
+                  <div class="term-card"><h3>A/B/A</h3><p>Quay lại baseline sau candidate để phát hiện drift theo thời gian.</p></div>
+                  <div class="term-card"><h3>Provenance</h3><p>Image digest, git SHA, model revision, env và source hashes đi cùng mọi result.</p></div>
+                  <div class="term-card"><h3>Kill criterion</h3><p>Điều kiện dừng viết trước, giúp không tiếp tục hướng đắt vì sunk cost.</p></div>
+                  <div class="term-card"><h3>External validity</h3><p>Candidate local thắng có còn thắng trên H200 MIG/evaluator thật hay không.</p></div>
+                </div>
+                <div class="lesson-gate"><strong>Gate:</strong> Mỗi row ledger trả lời một câu hỏi và có parent, one_change, evidence, outcome.</div>
+              </div>
+            </article>
+
+            <section class="lesson reveal" id="glossary">
+              <span class="lesson-number">G</span>
+              <div>
+                <span class="time">QUICK REFERENCE</span>
+                <h2>Glossary: các thuật ngữ còn lại</h2>
+                <div class="term-grid">
+                  <div class="term-card"><h3>HBM</h3><p>High Bandwidth Memory, bộ nhớ package-side trên datacenter GPUs.</p></div>
+                  <div class="term-card"><h3>Tensor Core</h3><p>Hardware matrix operations cho mixed precision như BF16/FP8.</p></div>
+                  <div class="term-card"><h3>Occupancy</h3><p>Tỷ lệ warps active so với maximum; là diagnostic, không phải mục tiêu tuyệt đối.</p></div>
+                  <div class="term-card"><h3>Memory-bound</h3><p>Performance giới hạn bởi data movement hơn arithmetic throughput.</p></div>
+                  <div class="term-card"><h3>Compute-bound</h3><p>Arithmetic units là giới hạn chính; tăng bandwidth không giúp nhiều.</p></div>
+                  <div class="term-card"><h3>Kernel backend</h3><p>Implementation được dispatch như FlashAttention, Triton hay custom CUDA.</p></div>
+                  <div class="term-card"><h3>Speculative decoding</h3><p>Draft nhiều tokens rồi target verify; lợi ích phụ thuộc accepted work/cost.</p></div>
+                  <div class="term-card"><h3>Acceptance rate</h3><p>Tỷ lệ draft tokens được nhận; không đủ một mình để xác định break-even.</p></div>
+                  <div class="term-card"><h3>Docker overlay</h3><p>Ghi đè source lên package trong image; nhanh nhưng cần digest/ABI guards.</p></div>
+                  <div class="term-card"><h3>tcmalloc</h3><p>Alternative allocator; chỉ dùng khi CPU allocation profiling/A-B hỗ trợ.</p></div>
+                  <div class="term-card"><h3>SM89 / SM90</h3><p>Compute architectures Ada/Hopper; khác resources và optimal kernel configs.</p></div>
+                  <div class="term-card"><h3>Graph capture size</h3><p>Batch/shape được capture; mismatch có thể quay về eager hoặc graph khác.</p></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel reveal" aria-labelledby="next-reading">
+              <h2 id="next-reading">Primary-source reading shelf</h2>
+              <p class="panel-intro">Đọc sau khi đã có mental model tương ứng; tránh mở documentation theo alphabet rồi mất context.</p>
+              <ul class="checklist">
+                <li><a href="https://docs.vllm.ai/">vLLM documentation</a> — installation, optimization, profiling và architecture.</li>
+                <li><a href="https://docs.nvidia.com/nsight-systems/">Nsight Systems documentation</a> — system-wide timeline.</li>
+                <li><a href="https://docs.nvidia.com/nsight-compute/">Nsight Compute documentation</a> — kernel counters.</li>
+                <li><a href="https://docs.nvidia.com/cuda/cuda-c-programming-guide/">CUDA Programming Guide</a> — execution/memory/graphs.</li>
+                <li><a href="https://triton-lang.org/main/index.html">Triton documentation</a> — language, tutorials và debugging.</li>
+                <li><a href="https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct">LFM2.5 model card/config</a> — architecture ground truth.</li>
+              </ul>
+              <div class="hero-actions">
+                <a class="button primary" href="index.html#flow">Áp dụng vào experiment flow →</a>
+                <a class="button" href="SKILLS_ROADMAP.vi.md">Lộ trình 12 tuần</a>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="shell footer-grid">
+        <span>Đọc theo dependency, không theo buzzword.</span>
+        <span><a href="index.html">Experiment flow</a> · <a href="https://github.com/buicongnguyen/cuda-vllm-optimize">Source repo</a></span>
+      </div>
+    </footer>
+  </body>
+</html>

@@ -1,5 +1,8 @@
 # LFM RaceBench
 
+**Website:** [Experiment flow](https://buicongnguyen.github.io/cuda-vllm-optimize/) ·
+[Learning path](https://buicongnguyen.github.io/cuda-vllm-optimize/learn.html)
+
 Một repository **benchmark-first** để phân tích và tối ưu serving
 `LiquidAI/LFM2.5-1.2B-Instruct` bằng vLLM trên H200 MIG `1g.18gb`, 3 vCPU và
 8 GB RAM. Repo được dựng từ bài viết “Một tuần ép từng millisecond tối ưu hóa
@@ -36,7 +39,7 @@ tests/                  regression tests cho công thức và dữ liệu benchm
 data/claims.json        audit: verified / contradicted / inferred / unverified
 experiments/ledger.csv  sổ thí nghiệm one-change-at-a-time
 configs/                workload và vLLM args mẫu, có ghi rõ phần chưa biết
-docs/                   phân tích, decision flow, score strategy, skill roadmap
+docs/                   GitHub Pages site + analysis, decision flow, score strategy
 ```
 
 Repo không giả vờ cung cấp Triton kernels chưa được kiểm tra trên SM90 MIG, không

@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Quy trình benchmark-first để tối ưu LFM2.5 inference với vLLM trên RTX 4080 Super và H200 MIG.">
+    <meta name="theme-color" content="#071014">
+    <title>LFM RaceBench — Experiment flow</title>
+    <link rel="stylesheet" href="assets/site.css">
+    <script src="assets/site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#content">Đi đến nội dung</a>
+    <header class="site-header">
+      <nav class="nav shell" aria-label="Điều hướng chính">
+        <a class="brand" href="index.html">
+          <span class="brand-mark" aria-hidden="true">RB</span>
+          <span>LFM RaceBench</span>
+        </a>
+        <button class="nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="main-nav" aria-label="Mở menu">☰</button>
+        <div class="nav-links" id="main-nav" data-nav-links>
+          <a href="index.html" aria-current="page">Experiment</a>
+          <a href="learn.html">Learning path</a>
+          <a href="#score">ERS calculator</a>
+          <a href="https://github.com/buicongnguyen/cuda-vllm-optimize">GitHub ↗</a>
+        </div>
+      </nav>
+    </header>
+
+    <main id="content">
+      <section class="hero">
+        <div class="shell hero-grid">
+          <div>
+            <p class="eyebrow">Inference systems · evidence first</p>
+            <h1>Đo trước.<br><span>Tối ưu sau.</span></h1>
+            <p class="lede">Một bản đồ thực nghiệm để đưa 420 requests qua vLLM trên phần cứng giới hạn—không nhầm roofline estimate với measurement, không đốt submission vào những flag chưa chứng minh.</p>
+            <div class="hero-actions">
+              <a class="button primary" href="#flow">Xem experiment flow →</a>
+              <a class="button" href="learn.html">Học từ nền tảng</a>
+            </div>
+          </div>
+          <aside class="brief-card" aria-label="Tóm tắt bài toán">
+            <h2>Race constraints</h2>
+            <div class="brief-row"><span>Model</span><strong>LFM2.5 · 1.17B</strong></div>
+            <div class="brief-row"><span>Workload</span><strong>70 × 6 turns</strong></div>
+            <div class="brief-row"><span>Target</span><strong>H200 MIG · 18 GB</strong></div>
+            <div class="brief-row"><span>Local lab</span><strong>RTX 4080S · 16 GB</strong></div>
+            <div class="brief-row"><span>Score</span><strong>TTFT 50% · TPOT 50%</strong></div>
+            <span class="status">Harness + documentation ready</span>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section" id="facts">
+        <div class="shell">
+          <div class="section-head">
+            <div>
+              <span class="section-index">00 / CORRECT THE MODEL</span>
+              <h2>Ba facts đổi cả chiến lược</h2>
+            </div>
+            <p class="section-copy">Trước khi viết kernel, audit lại architecture, score và hardware. Một layer count sai hoặc metric gắn nhầm nhãn có thể làm mọi ưu tiên phía sau sai theo.</p>
+          </div>
+          <div class="metric-grid reveal">
+            <article class="metric-card">
+              <span class="label">Architecture</span>
+              <strong class="value accent-cyan">10 + 6</strong>
+              <small>10 convolution blocks, 6 GQA blocks — không phải ngược lại.</small>
+            </article>
+            <article class="metric-card">
+              <span class="label">Quoted baseline</span>
+              <strong class="value accent-amber">63.19</strong>
+              <small>47 ms TTFT + 4 ms TPOT cho 63.19 ERS, không phải 42.</small>
+            </article>
+            <article class="metric-card">
+              <span class="label">Target 72 at 47 ms</span>
+              <strong class="value">2.909 ms</strong>
+              <small>TPOT cần đạt theo công thức được trích dẫn.</small>
+            </article>
+            <article class="metric-card">
+              <span class="label">Local sensitivity</span>
+              <strong class="value">×31.9</strong>
+              <small>Mỗi ms TPOT có tác động điểm lớn hơn mỗi ms TTFT tại 47/4.</small>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="flow">
+        <div class="shell">
+          <div class="section-head">
+            <div>
+              <span class="section-index">01 / EXPERIMENT FLOW</span>
+              <h2>Năm gates trước portal</h2>
+            </div>
+            <p class="section-copy">Mỗi gate loại một kiểu self-deception. Chỉ candidate đã qua correctness, target-shaped profiling và repeated A/B mới xứng đáng dùng submission có giới hạn.</p>
+          </div>
+          <div class="flow reveal">
+            <article class="flow-card">
+              <span class="number">01</span>
+              <h3>Freeze the contract</h3>
+              <p>Pin metric, units, aggregation, image digest, model revision, prompt distribution và Poisson λ.</p>
+              <span class="gate">PASS: no UNKNOWN that changes score</span>
+            </article>
+            <article class="flow-card">
+              <span class="number">02</span>
+              <h3>Reproduce baseline</h3>
+              <p>Chạy A/B/A trên target-shaped workload. Lưu raw request events thay vì chỉ một ERS tổng.</p>
+              <span class="gate">PASS: variance below target gain</span>
+            </article>
+            <article class="flow-card">
+              <span class="number">03</span>
+              <h3>Profile the path</h3>
+              <p>Ghép client timeline, vLLM scheduler, CPU run queue, CUDA API, graphs và kernels.</p>
+              <span class="gate">PASS: bottleneck has measured share</span>
+            </article>
+            <article class="flow-card">
+              <span class="number">04</span>
+              <h3>Change one thing</h3>
+              <p>Một hypothesis, một parent config, một kill criterion. Correctness trước performance.</p>
+              <span class="gate">PASS: effect exceeds noise floor</span>
+            </article>
+            <article class="flow-card">
+              <span class="number">05</span>
+              <h3>Validate on H200 MIG</h3>
+              <p>RTX 4080 lọc ý tưởng; SM90 MIG quyết định. Không chuyển block size hay latency tuyệt đối.</p>
+              <span class="gate">PASS: repeatable portal improvement</span>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="score">
+        <div class="shell">
+          <div class="section-head">
+            <div>
+              <span class="section-index">02 / SCORE</span>
+              <h2>ERS calculator</h2>
+            </div>
+            <p class="section-copy">Calculator này cố tình bám đúng công thức trong bài viết để phát hiện mâu thuẫn. Trước contest thật, thay bằng evaluator specification chính thức.</p>
+          </div>
+          <div class="calculator reveal">
+            <div class="panel">
+              <h3>Latency inputs</h3>
+              <p class="panel-intro">Đơn vị milliseconds. Giá trị mặc định là cặp được gọi là baseline trong bài.</p>
+              <div class="fields">
+                <label>TTFT (ms)<input data-ttft type="number" min="0" step="0.01" value="47"></label>
+                <label>TPOT (ms)<input data-tpot type="number" min="0" step="0.01" value="4"></label>
+              </div>
+              <pre class="code-block" aria-label="Công thức ERS">ERS = 100 × [0.5 × ((400 − TTFT) / 390)²
+           + 0.5 × ((10 − TPOT) / 9)²]</pre>
+            </div>
+            <div class="panel score-readout" aria-live="polite">
+              <span class="score" data-score>63.19</span>
+              <span class="score-label">Effective Request Score</span>
+              <p class="score-note" data-score-detail>Mốc 72 ERS: còn thiếu 8.81.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="hardware">
+        <div class="shell">
+          <div class="section-head">
+            <div>
+              <span class="section-index">03 / HARDWARE FIDELITY</span>
+              <h2>Một lab, hai vai trò</h2>
+            </div>
+            <p class="section-copy">RTX 4080 Super rất hữu ích, nhưng câu hỏi nó trả lời khác H200 MIG. Tách “candidate filter” khỏi “contest verdict” để tránh benchmark proxy.</p>
+          </div>
+          <div class="comparison reveal">
+            <article class="panel hardware-card">
+              <span class="chip">LOCAL · ADA SM89</span>
+              <h3>RTX 4080 Super · 16 GB</h3>
+              <ul>
+                <li>Correctness, unit/property tests, fallback paths</li>
+                <li>Config screening và Poisson workload replay</li>
+                <li>Nsight Systems flow, Docker overlay, regression bisect</li>
+                <li>SM89 Triton tuning — chỉ kết luận cho Ada</li>
+              </ul>
+            </article>
+            <article class="panel hardware-card warning">
+              <span class="chip">TARGET · HOPPER SM90 MIG</span>
+              <h3>H200 1g.18gb · 18 GB</h3>
+              <ul>
+                <li>Final TTFT/TPOT và submission score</li>
+                <li>SM90 register pressure, Tensor Core và graph behavior</li>
+                <li>HBM bandwidth, MIG partitioning và 3-vCPU contention</li>
+                <li>Block sizes, backend choice và end-to-end verdict</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="priorities">
+        <div class="shell">
+          <div class="section-head">
+            <div>
+              <span class="section-index">04 / PRIORITY QUEUE</span>
+              <h2>Expected value trước novelty</h2>
+            </div>
+            <p class="section-copy">Một integration regression 63→51 có giá trị điều tra lớn hơn ba custom kernels cho tổng cộng ~1%. Tối ưu score, không tối ưu độ thú vị của patch.</p>
+          </div>
+          <div class="comparison reveal">
+            <article class="panel">
+              <h3>Do next</h3>
+              <ul class="checklist">
+                <li>Bisect artifact để lấy lại regression 63→51</li>
+                <li>Profile active batch histogram và CUDA Graph coverage</li>
+                <li>Tune scheduler/prefill budget quanh 70 active sequences</li>
+                <li>Đo prefix-cache hit rate theo conversation turn</li>
+                <li>A/B FP8 weights và FP8 KV riêng biệt</li>
+              </ul>
+            </article>
+            <article class="panel warning">
+              <h3>Research branch</h3>
+              <ul class="checklist">
+                <li>Hybrid speculative decoding: multi-KV-group chưa hoàn chỉnh</li>
+                <li>Custom fusion nếu compile pass đã fuse cùng pattern</li>
+                <li>Allocator/tokenizer/shm bundle không có isolated A/B</li>
+                <li>Latency từ L4/4080 dùng để dự báo H200 MIG</li>
+                <li>“Optimization flag” không chứng minh code path được active</li>
+              </ul>
+            </article>
+          </div>
+          <div class="hero-actions">
+            <a class="button primary" href="learn.html">Mở learning path →</a>
+            <a class="button" href="ANALYSIS.vi.md">Đọc technical audit</a>
+            <a class="button" href="SCORE_STRATEGY.vi.md">Đọc score strategy</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="shell footer-grid">
+        <span>LFM RaceBench · benchmark-first inference engineering</span>
+        <span>Source, tests và experiment ledger trên <a href="https://github.com/buicongnguyen/cuda-vllm-optimize">GitHub</a></span>
+      </div>
+    </footer>
+  </body>
+</html>

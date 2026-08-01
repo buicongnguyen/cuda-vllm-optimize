@@ -5,4 +5,3 @@ E002,E001,planned,FP8 KV cache improves concurrency but may not help short conte
 E003,E002,planned,Prefix caching reduces later-turn TTFT because each conversation repeats its prefix,enable-prefix-caching false to true,H200 MIG 1g.18gb,2025,,,,Report hit rate by turn not only global mean
 E004,E003,planned,A capture-size distribution matching active batches reduces launch overhead,cudagraph capture sizes only,H200 MIG 1g.18gb,2025,,,,Profile batch-size histogram first
 E005,E004,planned,Chunked prefill prevents arriving prompts from stalling active decodes,chunked prefill only,H200 MIG 1g.18gb,2025,,,,Compare TTFT TPOT and p95 inter-token latency
-

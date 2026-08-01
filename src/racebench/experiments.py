@@ -81,4 +81,3 @@ def validate_ledger(experiments: list[Experiment]) -> list[str]:
             if value is not None and value < 0:
                 errors.append(f"{prefix}: {label} cannot be negative")
     return errors
-

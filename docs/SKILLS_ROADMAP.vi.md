@@ -120,4 +120,3 @@ nhanh hơn. Master nghĩa là có thể:
 4. đo end-to-end trên target và định lượng uncertainty;
 5. rollback/bisect khi integration regression;
 6. giải thích kết quả bằng counter/timeline có thể tái lập.
-

@@ -38,4 +38,3 @@ def validate_claims(claims: list[dict[str, object]]) -> list[str]:
         if not isinstance(sources, list):
             errors.append(f"{prefix}: sources must be a list")
     return errors
-

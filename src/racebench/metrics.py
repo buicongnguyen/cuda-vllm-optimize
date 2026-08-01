@@ -77,4 +77,3 @@ def summarize_requests(
         "ttft_ms": aggregate((timing.ttft_ms for timing in requests), method),
         "tpot_ms": aggregate(tpots, method),
     }
-

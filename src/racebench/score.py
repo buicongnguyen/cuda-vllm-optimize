@@ -140,4 +140,3 @@ def score_report(ttft_ms: float, tpot_ms: float, target_score: float = 72.0) -> 
         "required_tpot_at_current_ttft_ms": tpot_value,
         "required_ttft_at_current_tpot_ms": ttft_value,
     }
-

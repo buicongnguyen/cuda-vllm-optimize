@@ -11,4 +11,3 @@ Mọi performance claim mới cần:
 
 Không commit model weights, contest secrets, evaluator prompts riêng tư hoặc raw
 logs chứa dữ liệu nhạy cảm.
-

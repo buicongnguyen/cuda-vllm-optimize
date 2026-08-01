@@ -53,4 +53,3 @@ def write_jsonl(arrivals: list[Arrival], path: Path) -> None:
     with path.open("w", encoding="utf-8", newline="\n") as handle:
         for arrival in arrivals:
             handle.write(json.dumps(asdict(arrival), ensure_ascii=False) + "\n")
-

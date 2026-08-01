@@ -1,0 +1,28 @@
+{
+  "workload": {
+    "requests": 420,
+    "conversations": 70,
+    "turns_per_conversation": 6,
+    "arrival_process": "poisson",
+    "request_rate_per_second": 7.0,
+    "seed": 2025,
+    "note": "Replace request_rate with the official value; it was not present in the supplied article."
+  },
+  "hardware": {
+    "gpu": "H200 MIG 1g.18gb",
+    "vram_gb": 18,
+    "vcpu": 3,
+    "ram_gb": 8
+  },
+  "model": "LiquidAI/LFM2.5-1.2B-Instruct",
+  "score": {
+    "ttft_bad_ms": 400,
+    "ttft_span_ms": 390,
+    "tpot_bad_ms": 10,
+    "tpot_span_ms": 9,
+    "ttft_weight": 0.5,
+    "tpot_weight": 0.5,
+    "aggregation": "UNKNOWN_CONFIRM_WITH_ORGANIZER"
+  }
+}
+

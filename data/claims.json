@@ -1,0 +1,89 @@
+[
+  {
+    "id": "architecture-layer-count",
+    "claim": "LFM2.5-1.2B has 16 layers: 10 convolution blocks and 6 GQA blocks.",
+    "article_claim": "10 attention layers and 6 shortconv layers.",
+    "status": "contradicted",
+    "impact": "Kernel priority and state-memory estimates use the wrong layer ratio.",
+    "sources": [
+      "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct"
+    ]
+  },
+  {
+    "id": "ers-baseline-arithmetic",
+    "claim": "The quoted formula gives ERS 63.1851 for TTFT=47 ms and TPOT=4 ms.",
+    "article_claim": "The same latency pair is approximately 42 ERS.",
+    "status": "contradicted",
+    "impact": "Score targets and attribution cannot be trusted until evaluator units and aggregation are confirmed.",
+    "sources": [
+      "repo:tests/test_score.py"
+    ]
+  },
+  {
+    "id": "h200-mig-profile",
+    "claim": "H200 supports a MIG 1g.18gb profile with 1/8 memory and 1/7 SM resources.",
+    "status": "verified",
+    "impact": "Full-H200 and other-architecture benchmarks are not faithful proxies.",
+    "sources": [
+      "https://docs.nvidia.com/datacenter/tesla/mig-user-guide/supported-mig-profiles.html"
+    ]
+  },
+  {
+    "id": "lfm-draft-multigroup",
+    "claim": "Separate hybrid LFM draft models currently require multiple KV-cache groups, while the vLLM drafter assumes one group/AttentionMetadata.",
+    "status": "verified",
+    "impact": "Speculative decoding is a structural engineering project, not a flag-only experiment.",
+    "sources": [
+      "https://github.com/vllm-project/vllm/issues/49112"
+    ]
+  },
+  {
+    "id": "spec-acceptance-threshold",
+    "claim": "Speculative decoding needs at least 90% acceptance to improve performance.",
+    "status": "unverified",
+    "impact": "Break-even depends on draft cost, verification cost, batch size and speculation length; use measured accepted tokens per target invocation.",
+    "sources": []
+  },
+  {
+    "id": "compute-lower-bound",
+    "claim": "2.4 GFLOP divided by 141 TFLOP/s is about 0.017 ms.",
+    "status": "inferred",
+    "impact": "This is a roofline lower bound, not measured GPU compute time and not proof that compute optimization is useless.",
+    "sources": []
+  },
+  {
+    "id": "weight-bytes",
+    "claim": "A 1.17B-parameter model has about 1.17 GB of FP8 weight payload before metadata/scales, not 0.6 GB.",
+    "status": "inferred",
+    "impact": "The HBM time table needs profiler counters or a documented explanation for reused/non-FP8/untouched weights.",
+    "sources": [
+      "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct"
+    ]
+  },
+  {
+    "id": "optimization-level-3",
+    "claim": "Current vLLM documentation says O3 is presently equivalent to O2; behavior is version-dependent.",
+    "status": "verified",
+    "impact": "A claimed universal +2% from O3 must name the exact vLLM commit and hardware.",
+    "sources": [
+      "https://docs.vllm.ai/en/latest/design/optimization_levels/"
+    ]
+  },
+  {
+    "id": "fastokens-language-version",
+    "claim": "Current vLLM documents fastokens as a Rust backend available in v0.23.0 and later.",
+    "article_claim": "fastokens is described as a C++ tokenizer without a pinned vLLM version.",
+    "status": "contradicted",
+    "impact": "Record the Rust package/backend and exact vLLM build; then verify token IDs and streaming output before measuring latency.",
+    "sources": [
+      "https://github.com/vllm-project/vllm/blob/main/docs/configuration/optimization.md"
+    ]
+  },
+  {
+    "id": "docker-shm-oom",
+    "claim": "Reducing --shm-size from 2 GB to 256 MB avoids OOM.",
+    "status": "unverified",
+    "impact": "The limit is not normally fully preallocated; record cgroup memory.current, /dev/shm usage and the exact failure.",
+    "sources": []
+  }
+]

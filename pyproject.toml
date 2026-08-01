@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lfm-racebench"
+version = "0.1.0"
+description = "Reproducible scoring and experiment planning for constrained vLLM inference races"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Viettel AI Race community analysis"}]
+dependencies = []
+
+[project.scripts]
+racebench = "racebench.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

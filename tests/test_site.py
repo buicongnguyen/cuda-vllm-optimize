@@ -33,6 +33,27 @@ class SiteCheckTests(unittest.TestCase):
         for module in range(10):
             self.assertIn(f'href="#m{module}"', learning)
 
+    def test_reader_documents_use_html_routes(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "docs"
+        pages = {
+            "analysis.html": "ANALYSIS.vi.md",
+            "decision-flow.html": "DECISION_FLOW.vi.md",
+            "score-strategy.html": "SCORE_STRATEGY.vi.md",
+            "skills-roadmap.html": "SKILLS_ROADMAP.vi.md",
+        }
+
+        for page, source in pages.items():
+            rendered = (root / page).read_text(encoding="utf-8")
+            self.assertIn(f'data-doc-source="{source}"', rendered)
+            self.assertTrue((root / source).is_file())
+
+        for html_page in root.glob("*.html"):
+            rendered = html_page.read_text(encoding="utf-8")
+            self.assertNotIn('href="ANALYSIS.vi.md"', rendered)
+            self.assertNotIn('href="DECISION_FLOW.vi.md"', rendered)
+            self.assertNotIn('href="SCORE_STRATEGY.vi.md"', rendered)
+            self.assertNotIn('href="SKILLS_ROADMAP.vi.md"', rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

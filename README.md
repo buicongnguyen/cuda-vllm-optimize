@@ -26,10 +26,11 @@ truth.
   viết sau khi Nsight Systems chứng minh kernels vẫn được launch rời bên ngoài
   CUDA Graph/compile fusion và chiếm phần đủ lớn của critical path.
 
-Đọc phân tích đầy đủ tại [docs/ANALYSIS.vi.md](docs/ANALYSIS.vi.md), luồng ra
-quyết định tại [docs/DECISION_FLOW.vi.md](docs/DECISION_FLOW.vi.md), chiến lược
-điểm số tại [docs/SCORE_STRATEGY.vi.md](docs/SCORE_STRATEGY.vi.md), và lộ trình
-kỹ năng tại [docs/SKILLS_ROADMAP.vi.md](docs/SKILLS_ROADMAP.vi.md).
+Đọc bản web tại [technical audit](https://buicongnguyen.github.io/cuda-vllm-optimize/analysis.html),
+[decision flow](https://buicongnguyen.github.io/cuda-vllm-optimize/decision-flow.html),
+[score strategy](https://buicongnguyen.github.io/cuda-vllm-optimize/score-strategy.html)
+và [skills roadmap](https://buicongnguyen.github.io/cuda-vllm-optimize/skills-roadmap.html).
+Các file Markdown tương ứng vẫn được giữ trong `docs/` làm source dễ review bằng Git.
 
 ## Repo này cung cấp gì?
 

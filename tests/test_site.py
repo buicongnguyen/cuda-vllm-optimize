@@ -54,6 +54,18 @@ class SiteCheckTests(unittest.TestCase):
             self.assertNotIn('href="SCORE_STRATEGY.vi.md"', rendered)
             self.assertNotIn('href="SKILLS_ROADMAP.vi.md"', rendered)
 
+    def test_problem_page_connects_requirements_to_experiments(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "docs"
+        problem = (root / "problem.html").read_text(encoding="utf-8")
+
+        self.assertIn("REQUIREMENT CONTRACT", problem)
+        self.assertIn("REQUIREMENT ANALYSIS", problem)
+        self.assertIn("IDEA PORTFOLIO", problem)
+        self.assertIn("EXPERIMENT BACKLOG", problem)
+        self.assertIn("Official spec needed", problem)
+        for experiment in range(12):
+            self.assertIn(f"E{experiment:02d}", problem)
+
 
 if __name__ == "__main__":
     unittest.main()

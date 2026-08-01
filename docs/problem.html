@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Từ đề bài Viettel AI Race đến requirements, hypotheses và ma trận thí nghiệm tối ưu LLM inference.">
+    <meta name="theme-color" content="#071014">
+    <title>LFM RaceBench — Problem to experiments</title>
+    <link rel="stylesheet" href="assets/site.css">
+    <script src="assets/site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#content">Đi đến nội dung</a>
+    <header class="site-header">
+      <nav class="nav shell" aria-label="Điều hướng chính">
+        <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">RB</span><span>LFM RaceBench</span></a>
+        <button class="nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="main-nav" aria-label="Mở menu">☰</button>
+        <div class="nav-links" id="main-nav" data-nav-links>
+          <a href="problem.html" aria-current="page">Problem</a><a href="index.html">Experiment</a><a href="learn.html">Learning</a><a href="analysis.html">Documents</a><a href="https://github.com/buicongnguyen/cuda-vllm-optimize">GitHub ↗</a>
+        </div>
+      </nav>
+    </header>
+
+    <main id="content">
+      <section class="article-hero problem-hero">
+        <div class="shell">
+          <p class="eyebrow">Start here · question → evidence → experiments</p>
+          <h1>Đề bài trước.<br><span>Ý tưởng sau.</span></h1>
+          <p class="lede">Không bắt đầu bằng flag hay kernel. Bắt đầu bằng contract có nguồn, chuyển từng constraint thành engineering implication, rồi mới tạo hypothesis và experiment có kill criterion.</p>
+          <div class="problem-question">
+            <span>THE ENGINEERING QUESTION</span>
+            <strong>Với model, workload, hardware và luật đã cố định, thay đổi hợp lệ nào làm ERS tăng có thể tái lập mà vẫn giữ correctness và stability?</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="contract">
+        <div class="shell">
+          <div class="section-head">
+            <div><span class="section-index">01 / REQUIREMENT CONTRACT</span><h2>Biết gì, chưa biết gì?</h2></div>
+            <p class="section-copy">Detailed contest PDF/Q&amp;A chưa xuất hiện trong các nguồn public đã kiểm tra. Vì vậy requirement lấy từ bài viết được giữ ở trạng thái “narrative”, không nâng thành official fact.</p>
+          </div>
+          <div class="status-legend" aria-label="Mức độ bằng chứng">
+            <span class="evidence verified">Verified externally</span>
+            <span class="evidence narrative">Provided narrative</span>
+            <span class="evidence derived">Derived</span>
+            <span class="evidence unknown">Official spec needed</span>
+          </div>
+          <div class="requirement-table">
+            <table>
+              <thead><tr><th>Dimension</th><th>Working requirement</th><th>Evidence state</th><th>Must pin before benchmark</th></tr></thead>
+              <tbody>
+                <tr><td>Objective</td><td>Maximize ERS from TTFT and TPOT while preserving valid outputs.</td><td><span class="evidence narrative">Narrative</span></td><td>Official formula, clipping, aggregation and quality rule.</td></tr>
+                <tr><td>Model</td><td><code>LiquidAI/LFM2.5-1.2B-Instruct</code>; 1.17B params, 16 layers: 10 convolution + 6 GQA.</td><td><span class="evidence verified">Model card</span></td><td>Exact revision, tokenizer files, generation config.</td></tr>
+                <tr><td>Workload</td><td>420 requests; 70 conversations × 6 causal turns; Poisson arrivals.</td><td><span class="evidence narrative">Narrative</span></td><td>λ, prompt/output distribution, turn dependency and client timeout.</td></tr>
+                <tr><td>Target</td><td>H200 MIG slice, 18 GB VRAM, 3 vCPU, 8 GB RAM.</td><td><span class="evidence narrative">Narrative</span></td><td>Exact MIG profile, clocks/power, driver and base-image digest.</td></tr>
+                <tr><td>Allowed stack</td><td>vLLM only; no weight/tokenizer modification; runtime FP8 reportedly allowed via Q&amp;A.</td><td><span class="evidence narrative">Narrative</span></td><td>Exact allowed patches, extensions, quantization and network policy.</td></tr>
+                <tr><td>Submission budget</td><td>5 submissions/member/day; team up to 3.</td><td><span class="evidence narrative">Narrative</span></td><td>Crash accounting, reset time and team-sharing rules.</td></tr>
+                <tr><td>Score check</td><td>At 47 ms TTFT / 4 ms TPOT, the quoted equation evaluates to 63.19—not 42.</td><td><span class="evidence derived">Calculated</span></td><td>Resolve whether the latency pair, equation or evaluator aggregation was mislabeled.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <aside class="spec-callout"><strong>Blocking input:</strong> nếu có official challenge PDF, evaluator code hoặc Q&amp;A export, đưa chúng vào repo. Chúng có quyền ghi đè mọi working requirement phía trên.</aside>
+        </div>
+      </section>
+
+      <section class="section" id="reasoning">
+        <div class="shell">
+          <div class="section-head">
+            <div><span class="section-index">02 / REQUIREMENT ANALYSIS</span><h2>Constraint tạo ra ý tưởng</h2></div>
+            <p class="section-copy">Mỗi ý tưởng bên phải phải truy ngược được về một requirement bên trái. Nếu không, đó chỉ là novelty chưa có lý do để tiêu GPU hoặc submission.</p>
+          </div>
+          <div class="analysis-chain reveal" aria-label="Chuỗi từ requirement đến experiment">
+            <div><span>QUESTION</span><strong>ERS + correctness</strong></div><b aria-hidden="true">→</b>
+            <div><span>CONSTRAINT</span><strong>Workload / hardware / rules</strong></div><b aria-hidden="true">→</b>
+            <div><span>IMPLICATION</span><strong>Likely bottleneck</strong></div><b aria-hidden="true">→</b>
+            <div><span>HYPOTHESIS</span><strong>One causal change</strong></div><b aria-hidden="true">→</b>
+            <div><span>EXPERIMENT</span><strong>Evidence + decision</strong></div>
+          </div>
+          <div class="implication-grid">
+            <article class="implication-card"><span>ERS NORMALIZATION</span><h3>TPOT has higher local leverage</h3><p>Near 47/4, one millisecond TPOT changes score far more than one millisecond TTFT.</p><strong>Ideas →</strong><p>Decode cadence, stable batching, graph coverage, CPU gaps.</p></article>
+            <article class="implication-card"><span>70 × 6 + POISSON</span><h3>Serving dynamics dominate a single prompt</h3><p>Burstiness creates queueing; multi-turn creates state lifetime and possible prefix reuse.</p><strong>Ideas →</strong><p>Replay exact arrivals, bucket by turn, active-batch histogram, prefix hit rate.</p></article>
+            <article class="implication-card"><span>HYBRID ARCHITECTURE</span><h3>Two state systems must remain correct</h3><p>Attention KV and convolution state have different allocation and rollback semantics.</p><strong>Ideas →</strong><p>Hybrid cache profiling, ShortConv path, strict speculation correctness gate.</p></article>
+            <article class="implication-card"><span>3 vCPU / 8 GB RAM</span><h3>CPU control plane can gate the GPU</h3><p>Scheduler, tokenizer, event loop and process pools compete for a small CPU budget.</p><strong>Ideas →</strong><p>Systems timeline, run queue, tokenizer A/B, thread/worker isolation.</p></article>
+            <article class="implication-card"><span>H200 MIG TARGET</span><h3>RTX 4080 is a filter, not a verdict</h3><p>SM89 validates logic and workflow; SM90 MIG decides latency, block size and occupancy.</p><strong>Ideas →</strong><p>Two-stage gates: local reject early, target confirm only survivors.</p></article>
+            <article class="implication-card"><span>5 SUBMISSIONS / DAY</span><h3>Information gain is a scarce resource</h3><p>A bundled build cannot identify which change helped or caused regression.</p><strong>Ideas →</strong><p>Known-good control, one-change candidate, replicate, reserve rollback slot.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="hypotheses">
+        <div class="shell">
+          <div class="section-head">
+            <div><span class="section-index">03 / IDEA PORTFOLIO</span><h2>Hypotheses có thứ tự</h2></div>
+            <p class="section-copy">Rank theo expected ERS × probability ÷ cost, rồi giảm hạng theo correctness và integration risk.</p>
+          </div>
+          <div class="hypothesis-list">
+            <article><span class="priority p0">P0</span><div><h3>Artifact regression caused 63 → 51</h3><p><b>Why:</b> twelve points dwarf the reported ~1% fusion gain. <b>Measure:</b> known-good digest versus binary-search overlays. <b>Kill:</b> known-good also scores 51 under stable evaluator.</p></div></article>
+            <article><span class="priority p1">P1</span><div><h3>Decode batches miss efficient CUDA Graph coverage</h3><p><b>Why:</b> Poisson arrivals and 70 active conversations create recurring batch sizes. <b>Measure:</b> batch histogram, graph/eager ratio, host gaps, client TPOT. <b>Kill:</b> graph coverage is already high and gaps are outside decode.</p></div></article>
+            <article><span class="priority p1">P1</span><div><h3>Scheduler and prefill budget disturb decode cadence</h3><p><b>Why:</b> new turns may preempt or inflate iterations. <b>Measure:</b> TPOT/ITL by active batch and prefill interference. <b>Kill:</b> changes stay inside noise or harm TTFT more than ERS gain.</p></div></article>
+            <article><span class="priority p2">P2</span><div><h3>Multi-turn prefix reuse reduces later-turn TTFT</h3><p><b>Why:</b> turns share conversation history. <b>Measure:</b> cached tokens, eviction and TTFT for turns 1–6. <b>Kill:</b> unsupported hybrid path, low hit rate or memory pressure hurts TPOT.</p></div></article>
+            <article><span class="priority p2">P2</span><div><h3>FP8 weight and KV paths have different value</h3><p><b>Why:</b> weight bandwidth and cache capacity are separate bottlenecks. <b>Measure:</b> isolated A/Bs for speed, memory and quality. <b>Kill:</b> fallback/dequant path or no capacity pressure.</p></div></article>
+            <article><span class="priority p3">P3</span><div><h3>A measured kernel remains fusion-worthy</h3><p><b>Why:</b> only useful if frequent, material and not already compiled/captured. <b>Measure:</b> frequency × duration × removable fraction, then end-to-end A/B. <b>Kill:</b> gain below noise or SM90 register pressure reverses it.</p></div></article>
+            <article><span class="priority research">R</span><div><h3>Hybrid speculative decoding reaches break-even</h3><p><b>Why:</b> potentially large but architecture/version risk is high. <b>Measure:</b> exact outputs, accepted tokens, draft/verify cost and state rollback. <b>Kill:</b> initialization/correctness fails or measured break-even is negative.</p></div></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="experiments">
+        <div class="shell">
+          <div class="section-head">
+            <div><span class="section-index">04 / EXPERIMENT BACKLOG</span><h2>Mỗi test trả lời một câu</h2></div>
+            <p class="section-copy">Thứ tự dưới đây tối đa hóa information gain trước khi dùng H200 portal. “Local” nghĩa là RTX 4080 lọc candidate; không phải chứng minh performance portability.</p>
+          </div>
+          <div class="requirement-table experiment-table">
+            <table>
+              <thead><tr><th>ID</th><th>Question</th><th>Change</th><th>Evidence to collect</th><th>Gate</th></tr></thead>
+              <tbody>
+                <tr><td><code>E00</code></td><td>Contract đã đủ để tính và so score?</td><td>Không đổi runtime.</td><td>Official text, UNKNOWN list, independent ERS cases.</td><td>No unknown that can flip a decision.</td></tr>
+                <tr><td><code>E01</code></td><td>Baseline có tái lập?</td><td>Exact artifact A/A/A.</td><td>Raw request events, output tokens, mean/p95/CI.</td><td>Variance below smallest target gain.</td></tr>
+                <tr><td><code>E02</code></td><td>Critical path nằm ở đâu?</td><td>Profiling only.</td><td>Client timeline + NVTX + Nsight Systems; representative Compute counters.</td><td>Measured bottleneck share, no additive roofline guesses.</td></tr>
+                <tr><td><code>E03</code></td><td>Artifact nào tạo regression?</td><td>Known-good, infra-only, tokenizer-only, each kernel.</td><td>Manifest hashes and A/B score breakdown.</td><td>Single overlay reproduces meaningful loss.</td></tr>
+                <tr><td><code>E04</code></td><td>Batch/graph surface nào đáng capture?</td><td>Capture sizes from observed histogram.</td><td>Eager/graph ratio, CPU gap and TPOT by batch bucket.</td><td>Client TPOT gain exceeds noise.</td></tr>
+                <tr><td><code>E05</code></td><td>Scheduler budget cân bằng TTFT/TPOT?</td><td><code>max-num-seqs</code> 72/80/96; prefill budget around prompt percentiles.</td><td>TTFT, TPOT, ITL, queue delay and OOM headroom.</td><td>ERS improves in repeated A/B/A.</td></tr>
+                <tr><td><code>E06</code></td><td>Prefix cache giúp turn nào?</td><td>Off/on with identical replay.</td><td>Hit tokens, eviction, TTFT by turn, TPOT side effect.</td><td>Later-turn gain survives memory cost.</td></tr>
+                <tr><td><code>E07</code></td><td>FP8 weights giảm TPOT?</td><td>Quantization none → FP8.</td><td>Quality, selected backend, VRAM and latency.</td><td>Valid outputs and isolated positive effect.</td></tr>
+                <tr><td><code>E08</code></td><td>FP8 KV giúp capacity hoặc attention bandwidth?</td><td>KV dtype auto → FP8.</td><td>Context distribution, cache capacity, quality and latency.</td><td>Benefit exists without relying on the weight change.</td></tr>
+                <tr><td><code>E09</code></td><td>Frontend nào đáng giữ?</td><td>One at a time: tokenizer, worker/thread count, allocator.</td><td>CPU run queue, tokenize/detokenize time, TTFT/TPOT.</td><td>Gain remains after removing profiler.</td></tr>
+                <tr><td><code>E10</code></td><td>Custom fusion còn nằm trên critical path?</td><td>One kernel overlay.</td><td>Correctness matrix, SM89 local screen, SM90 counters, end-to-end A/B.</td><td>Target gain exceeds regression risk.</td></tr>
+                <tr><td><code>E11</code></td><td>Candidate có external validity?</td><td>Known-good control → candidate → replicate on H200 MIG.</td><td>Manifest, raw score inputs, evaluator output.</td><td>Repeatable portal improvement; otherwise rollback.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="submission-day">
+            <div><span>01</span><strong>Known-good control</strong></div><b>→</b><div><span>02</span><strong>Highest-EV candidate</strong></div><b>→</b><div><span>03</span><strong>Replicate or diagnostic sibling</strong></div><b>→</b><div><span>04</span><strong>Independent candidate</strong></div><b>→</b><div><span>05</span><strong>Confirm / rollback reserve</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="sources">
+        <div class="shell">
+          <div class="section-head"><div><span class="section-index">05 / PROVENANCE</span><h2>Nguồn và giới hạn</h2></div><p class="section-copy">Public sources confirm the competition track and model architecture, but not the detailed evaluator contract quoted in the supplied narrative.</p></div>
+          <div class="source-grid">
+            <a href="https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct"><strong>LiquidAI model card ↗</strong><span>1.17B parameters; 10 convolution + 6 GQA blocks; vLLM support.</span></a>
+            <a href="https://docs.vllm.ai/en/stable/api/vllm/model_executor/models/lfm2/"><strong>vLLM LFM2 implementation ↗</strong><span>Hybrid convolution cache and version-specific prefix-caching behavior.</span></a>
+            <a href="https://en.qdnd.vn/economy/military-businesses/viettel-opens-real-world-data-to-participants-in-viettel-ai-race-2026-592656"><strong>Public competition announcement ↗</strong><span>Confirms the LLM Inference Optimization challenge track.</span></a>
+            <a href="analysis.html"><strong>Technical audit →</strong><span>Claim-by-claim corrections and bottleneck analysis maintained in this repo.</span></a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer"><div class="shell footer-grid"><span>LFM RaceBench · problem to experiments</span><span>Next: <a href="index.html#flow">experiment flow</a> · <a href="decision-flow.html">decision protocol</a></span></div></footer>
+  </body>
+</html>

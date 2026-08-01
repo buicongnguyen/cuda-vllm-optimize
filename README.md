@@ -1,6 +1,7 @@
 # LFM RaceBench
 
-**Website:** [Experiment flow](https://buicongnguyen.github.io/cuda-vllm-optimize/) ·
+**Website:** [Problem → requirements → experiments](https://buicongnguyen.github.io/cuda-vllm-optimize/problem.html) ·
+[Experiment flow](https://buicongnguyen.github.io/cuda-vllm-optimize/) ·
 [Learning path](https://buicongnguyen.github.io/cuda-vllm-optimize/learn.html)
 
 Một repository **benchmark-first** để phân tích và tối ưu serving

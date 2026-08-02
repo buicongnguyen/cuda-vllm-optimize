@@ -6,7 +6,7 @@
     <meta name="description" content="Runbook chi tiết để tái tạo pipeline tối ưu vLLM và LFM2.5 trên RTX 4080 Super 16GB bằng WSL2.">
     <meta name="theme-color" content="#071014">
     <title>LFM RaceBench — Reproduce on RTX 4080 Super</title>
-    <link rel="stylesheet" href="assets/site.css">
+    <link rel="stylesheet" href="assets/site.css?v=visuals-1">
     <script src="assets/site.js" defer></script>
   </head>
   <body>
@@ -322,6 +322,15 @@ python scripts/rtx4080_replay.py ... \
             <section class="run-step panel" id="profile">
               <span class="run-index">06 / SYSTEMS → COMPUTE</span>
               <h2>Profile critical path, không profile cả thế giới</h2>
+              <figure class="profile-lanes" aria-labelledby="profile-lanes-title">
+                <figcaption><span>ONE SHARED TIME AXIS</span><h3 id="profile-lanes-title">Correlate client, CPU và GPU trước khi chọn profiler</h3></figcaption>
+                <div class="profile-lane" role="img" aria-label="Client lane contains submit, first token and stream; CPU lane contains frontend, queue, scheduler and launch gaps; GPU lane contains prefill, graph replay and decode kernels">
+                  <strong>CLIENT</strong><div class="lane-track"><span class="lane-block client-submit">submit</span><span class="lane-block client-first">first token</span><span class="lane-block client-stream">stream</span></div>
+                  <strong>CPU</strong><div class="lane-track"><span class="lane-block cpu-front">frontend</span><span class="lane-block cpu-queue">queue</span><span class="lane-block cpu-gap">host gap</span><span class="lane-block cpu-launch">launch</span></div>
+                  <strong>GPU</strong><div class="lane-track"><span class="lane-block gpu-prefill">prefill</span><span class="lane-block gpu-graph">graph replay</span><span class="lane-block gpu-decode">decode</span></div>
+                </div>
+                <div class="profile-lane-note"><span>Client timestamps → end-to-end symptom</span><span>Systems → critical-path gap/kernel</span><span>Compute → selected kernel counters</span></div>
+              </figure>
               <h3>A. Nsight Systems: server timeline</h3>
               <pre><code># Terminal A — profile server process
 nsys profile --trace=cuda,nvtx,osrt --sample=none \

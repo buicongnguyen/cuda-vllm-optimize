@@ -6,7 +6,7 @@
     <meta name="description" content="Phân tích kỹ thuật và phản biện hành trình tối ưu vLLM cho Viettel AI Race.">
     <meta name="theme-color" content="#071014">
     <title>LFM RaceBench — Technical audit</title>
-    <link rel="stylesheet" href="assets/site.css">
+    <link rel="stylesheet" href="assets/site.css?v=visuals-1">
     <script src="assets/site.js" defer></script>
   </head>
   <body>
@@ -27,6 +27,20 @@
           <h1>Technical <span>audit.</span></h1>
           <p class="lede">Điểm nào đã làm tốt, claim nào cần sửa và bottleneck nên được đo lại như thế nào.</p>
           <nav class="doc-switcher" aria-label="Bộ tài liệu"><a href="analysis.html" aria-current="page">Audit</a><a href="decision-flow.html">Decision flow</a><a href="score-strategy.html">Score strategy</a><a href="skills-roadmap.html">Skills roadmap</a></nav>
+        </div>
+      </section>
+      <section class="doc-visual-band" aria-labelledby="claim-status-title">
+        <div class="shell">
+          <figure class="visual-panel claim-status-chart">
+            <figcaption><span>CLAIM AUDIT · 10 ITEMS</span><h2 id="claim-status-title">Evidence quality at a glance</h2><p>Ba claim được nguồn ngoài xác nhận; bảy claim còn lại cần sửa, đo lại hoặc giữ uncertainty.</p></figcaption>
+            <div class="status-bar" role="img" aria-label="Trong 10 claim: 3 verified, 3 contradicted, 2 inferred và 2 unverified">
+              <span class="status-segment verified-segment" style="--share: 3"><b>3</b><small>verified</small></span>
+              <span class="status-segment contradicted-segment" style="--share: 3"><b>3</b><small>contradicted</small></span>
+              <span class="status-segment inferred-segment" style="--share: 2"><b>2</b><small>inferred</small></span>
+              <span class="status-segment unverified-segment" style="--share: 2"><b>2</b><small>unverified</small></span>
+            </div>
+            <div class="chart-note"><span>Source: <code>data/claims.json</code></span><strong>Rule: estimate ≠ measurement</strong></div>
+          </figure>
         </div>
       </section>
       <section class="section article-section">

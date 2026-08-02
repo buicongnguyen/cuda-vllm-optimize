@@ -6,7 +6,7 @@
     <meta name="description" content="Learning path có thứ tự để hiểu LLM inference, GPU, CUDA Graph, Nsight, vLLM, Triton và thống kê A/B/A.">
     <meta name="theme-color" content="#071014">
     <title>LFM RaceBench — Learning path</title>
-    <link rel="stylesheet" href="assets/site.css">
+    <link rel="stylesheet" href="assets/site.css?v=visuals-1">
     <script src="assets/site.js?v=stats-1" defer></script>
   </head>
   <body>
@@ -630,6 +630,20 @@ racebench validate-ledger experiments/ledger.csv
                     </article>
                   </div>
                 </section>
+
+                <figure class="benchmark-decision-visual" aria-labelledby="benchmark-visual-title">
+                  <figcaption><span>RUN ORDER + DECISION GEOMETRY</span><h3 id="benchmark-visual-title">A/B/A quan sát drift; confidence interval quyết định direction</h3></figcaption>
+                  <div class="aba-track" role="img" aria-label="Baseline R0 chạy trước, candidate B chạy ở giữa, baseline return R0 prime chạy sau">
+                    <div><span>R0</span><strong>Baseline</strong><small>pair requests</small></div><b aria-hidden="true">→</b>
+                    <div class="candidate-run"><span>B</span><strong>Candidate</strong><small>one change</small></div><b aria-hidden="true">→</b>
+                    <div><span>R0′</span><strong>Baseline return</strong><small>observe drift</small></div>
+                  </div>
+                  <div class="ci-visual" role="img" aria-label="Example bootstrap confidence interval from minus 0.38 to minus 0.18 milliseconds lies entirely left of zero, therefore classified faster">
+                    <div class="ci-labels"><span>FASTER · Δ &lt; 0</span><span>0</span><span>SLOWER · Δ &gt; 0</span></div>
+                    <div class="ci-axis"><i class="ci-zero"></i><span class="ci-range"><b>−0.38</b><b>−0.18 ms</b></span></div>
+                    <p>Example CI nằm hoàn toàn bên trái 0 → <strong>faster</strong>. Nếu interval chạm hoặc cắt 0 → <strong>uncertain</strong>.</p>
+                  </div>
+                </figure>
 
                 <div class="formula-grid" aria-label="Các công thức thống kê">
                   <section class="formula-card">

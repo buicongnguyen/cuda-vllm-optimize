@@ -6,7 +6,7 @@
     <meta name="description" content="Chiến lược tăng ERS dựa trên sensitivity, expected value và controlled experiments.">
     <meta name="theme-color" content="#071014">
     <title>LFM RaceBench — Score strategy</title>
-    <link rel="stylesheet" href="assets/site.css">
+    <link rel="stylesheet" href="assets/site.css?v=visuals-1">
     <script src="assets/site.js" defer></script>
   </head>
   <body>
@@ -27,6 +27,18 @@
           <h1>Score <span>strategy.</span></h1>
           <p class="lede">Ưu tiên thay đổi theo tác động ERS, probability, cost và risk thay vì độ mới lạ của optimization.</p>
           <nav class="doc-switcher" aria-label="Bộ tài liệu"><a href="analysis.html">Audit</a><a href="decision-flow.html">Decision flow</a><a href="score-strategy.html" aria-current="page">Score strategy</a><a href="skills-roadmap.html">Skills roadmap</a></nav>
+        </div>
+      </section>
+      <section class="doc-visual-band" aria-labelledby="sensitivity-title">
+        <div class="shell">
+          <figure class="visual-panel sensitivity-chart">
+            <figcaption><span>LOCAL ERS SENSITIVITY · AT 47 MS / 4 MS</span><h2 id="sensitivity-title">Một millisecond TPOT có leverage lớn hơn</h2><p>Độ dài bar biểu diễn score gain theo công thức được trích; đây là sensitivity cục bộ, không phải benchmark measurement.</p></figcaption>
+            <div class="sensitivity-bars" role="img" aria-label="Giảm một millisecond TPOT tăng khoảng 7.407 ERS; giảm một millisecond TTFT tăng khoảng 0.232 ERS">
+              <div class="sensitivity-row"><strong>TPOT −1 ms</strong><div class="bar-track"><span class="score-bar tpot-bar"></span></div><b>+7.407 ERS</b></div>
+              <div class="sensitivity-row"><strong>TTFT −1 ms</strong><div class="bar-track"><span class="score-bar ttft-bar"></span></div><b>+0.232 ERS</b></div>
+            </div>
+            <div class="chart-note"><span>Relative leverage ≈ <strong>31.9×</strong></span><strong>Formula-derived · evaluator unverified</strong></div>
+          </figure>
         </div>
       </section>
       <section class="section article-section">

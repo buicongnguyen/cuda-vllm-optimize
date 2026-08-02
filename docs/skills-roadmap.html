@@ -6,7 +6,7 @@
     <meta name="description" content="Kỹ năng cần làm chủ và lộ trình 12 tuần cho LLM inference performance engineering.">
     <meta name="theme-color" content="#071014">
     <title>LFM RaceBench — Skills roadmap</title>
-    <link rel="stylesheet" href="assets/site.css">
+    <link rel="stylesheet" href="assets/site.css?v=visuals-1">
     <script src="assets/site.js" defer></script>
   </head>
   <body>
@@ -27,6 +27,23 @@
           <h1>Skills <span>roadmap.</span></h1>
           <p class="lede">Thứ tự học từ performance methodology đến vLLM, GPU, Triton, numerical inference và infrastructure.</p>
           <nav class="doc-switcher" aria-label="Bộ tài liệu"><a href="analysis.html">Audit</a><a href="decision-flow.html">Decision flow</a><a href="score-strategy.html">Score strategy</a><a href="skills-roadmap.html" aria-current="page">Skills roadmap</a></nav>
+        </div>
+      </section>
+      <section class="doc-visual-band" aria-labelledby="roadmap-title">
+        <div class="shell">
+          <figure class="visual-panel roadmap-chart">
+            <figcaption><span>12-WEEK DEPENDENCY TIMELINE</span><h2 id="roadmap-title">Đo đúng trước khi viết kernel</h2><p>Mỗi phase tạo evidence hoặc skill cần cho phase sau; race simulation là integration test của toàn bộ lộ trình.</p></figcaption>
+            <div class="timeline-axis" aria-hidden="true"><span>WEEK</span><b>1</b><b>2</b><b>3</b><b>4</b><b>5</b><b>6</b><b>7</b><b>8</b><b>9</b><b>10</b><b>11</b><b>12</b></div>
+            <div class="roadmap-timeline" role="img" aria-label="Tuần 1 đến 2 đo lường; 3 đến 4 vLLM; 5 đến 6 Nsight và CUDA Graph; 7 đến 9 Triton; 10 quantization; 11 hybrid state; 12 race simulation">
+              <div class="timeline-row"><strong>Measurement</strong><span class="timeline-bar phase-foundation" style="--start: 2; --span: 2">W1–2 · metrics + A/B/A</span></div>
+              <div class="timeline-row"><strong>vLLM internals</strong><span class="timeline-bar phase-serving" style="--start: 4; --span: 2">W3–4 · scheduler + cache</span></div>
+              <div class="timeline-row"><strong>GPU evidence</strong><span class="timeline-bar phase-gpu" style="--start: 6; --span: 2">W5–6 · Nsight + graphs</span></div>
+              <div class="timeline-row"><strong>Kernel work</strong><span class="timeline-bar phase-kernel" style="--start: 8; --span: 3">W7–9 · Triton correctness</span></div>
+              <div class="timeline-row"><strong>Numerics</strong><span class="timeline-bar phase-numeric" style="--start: 11; --span: 1">W10 · FP8</span></div>
+              <div class="timeline-row"><strong>Hybrid state</strong><span class="timeline-bar phase-hybrid" style="--start: 12; --span: 1">W11 · rollback</span></div>
+              <div class="timeline-row"><strong>Integration</strong><span class="timeline-bar phase-integration" style="--start: 13; --span: 1">W12 · race sim</span></div>
+            </div>
+          </figure>
         </div>
       </section>
       <section class="section article-section">

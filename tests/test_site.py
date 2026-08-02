@@ -33,6 +33,21 @@ class SiteCheckTests(unittest.TestCase):
         for module in range(11):
             self.assertIn(f'href="#m{module}"', learning)
 
+        expected_page_visuals = {
+            "analysis.html": "claim-status-chart",
+            "decision-flow.html": "gate-flow-chart",
+            "score-strategy.html": "sensitivity-chart",
+            "skills-roadmap.html": "roadmap-chart",
+            "reproduce-rtx4080.html": "profile-lanes",
+        }
+        for page, visual in expected_page_visuals.items():
+            rendered = (root / "docs" / page).read_text(encoding="utf-8")
+            self.assertIn(visual, rendered)
+            self.assertIn('role="img"', rendered)
+
+        self.assertIn("benchmark-decision-visual", learning)
+        self.assertIn("Example bootstrap confidence interval", learning)
+
     def test_learning_modules_have_runnable_evidence_labs(self) -> None:
         root = Path(__file__).resolve().parents[1]
         learning = (root / "docs" / "learn.html").read_text(encoding="utf-8")

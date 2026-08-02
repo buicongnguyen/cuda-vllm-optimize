@@ -6,7 +6,7 @@
     <meta name="description" content="Luồng ra quyết định có thể kiểm chứng cho tối ưu LLM inference.">
     <meta name="theme-color" content="#071014">
     <title>LFM RaceBench — Decision flow</title>
-    <link rel="stylesheet" href="assets/site.css">
+    <link rel="stylesheet" href="assets/site.css?v=visuals-1">
     <script src="assets/site.js" defer></script>
   </head>
   <body>
@@ -27,6 +27,22 @@
           <h1>Decision <span>flow.</span></h1>
           <p class="lede">Từ observation đến hypothesis, test, evidence và quyết định—mỗi submission trả lời đúng một câu hỏi.</p>
           <nav class="doc-switcher" aria-label="Bộ tài liệu"><a href="analysis.html">Audit</a><a href="decision-flow.html" aria-current="page">Decision flow</a><a href="score-strategy.html">Score strategy</a><a href="skills-roadmap.html">Skills roadmap</a></nav>
+        </div>
+      </section>
+      <section class="doc-visual-band" aria-labelledby="gate-flow-title">
+        <div class="shell">
+          <figure class="visual-panel gate-flow-chart">
+            <figcaption><span>CONTROL LOOP</span><h2 id="gate-flow-title">Một candidate chỉ đi tiếp khi evidence qua gate</h2><p>Failure không đi thẳng tới portal; nó quay lại contract, baseline, measurement hoặc hypothesis tương ứng.</p></figcaption>
+            <div class="gate-track" role="img" aria-label="Sáu gates tuần tự: contract, reproducible baseline, critical path, expected value, local gates và portal submission">
+              <div class="gate-node"><span>G0</span><strong>Contract</strong><small>pin rules</small></div><b aria-hidden="true">→</b>
+              <div class="gate-node"><span>G1</span><strong>Baseline</strong><small>A/A/A stable</small></div><b aria-hidden="true">→</b>
+              <div class="gate-node"><span>G2</span><strong>Critical path</strong><small>timeline evidence</small></div><b aria-hidden="true">→</b>
+              <div class="gate-node"><span>G3</span><strong>Expected value</strong><small>gain ÷ cost/risk</small></div><b aria-hidden="true">→</b>
+              <div class="gate-node"><span>G4</span><strong>Local A/B/A</strong><small>quality + CI</small></div><b aria-hidden="true">→</b>
+              <div class="gate-node portal-gate"><span>G5</span><strong>Portal</strong><small>one question</small></div>
+            </div>
+            <div class="gate-outcomes"><span class="pass-path"><b>PASS</b> evidence đủ → next gate</span><span class="return-path"><b>FAIL / UNCERTAIN</b> revise one upstream assumption ↶</span></div>
+          </figure>
         </div>
       </section>
       <section class="section article-section">

@@ -63,6 +63,9 @@ có raw evaluator output.
 Windows + Ubuntu 22.04 WSL2. Từ PowerShell ở repo root:
 
 ```powershell
+wsl --list --verbose
+wsl -d Ubuntu-22.04 -- nvidia-smi
+
 .\scripts\rtx4080_bootstrap.ps1 -Run smoke
 .\scripts\rtx4080_bootstrap.ps1 -Run baseline
 .\scripts\rtx4080_bootstrap.ps1 -Run aba
@@ -75,6 +78,9 @@ hơn candidate. Setup tự pin vLLM 0.25.1, model
 revision, Python 3.12, mirror code vào WSL ext4 và lưu raw evidence. Xem
 [hướng dẫn GitHub đầy đủ](RTX4080_RUNBOOK.md) trước khi diễn giải điểm: đây là
 method reproduction trên SM89, không phải H200 MIG score equivalence.
+Với Windows-checkout route, artifacts nằm trong
+`~/src/cuda-vllm-optimize/results/rtx4080/` của WSL, không nằm cạnh source trên
+`C:`.
 
 ## Chạy harness không GPU
 

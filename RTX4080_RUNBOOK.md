@@ -1,149 +1,329 @@
-# RTX 4080 Super reproduction runbook
+# Chạy LFM RaceBench trên RTX 4080 Super với WSL2 Ubuntu 22.04
 
-This is the executable path for reproducing the **experiment method** from the
-Viettel AI Race analysis on a Windows PC with an RTX 4080 Super (16 GB). It does
-not claim that local latency or ERS equals an H200 MIG result.
+Đây là hướng dẫn thực thi đã được kiểm chứng trên máy Windows có RTX 4080
+Super 16 GB. Mục tiêu là tái tạo **phương pháp thí nghiệm** bằng vLLM, không
+phải tái tạo điểm tuyệt đối của H200 MIG hoặc hệ thống chấm cuộc thi.
 
-## What is verified on this PC
+## Đường chạy khuyến nghị
 
-The smoke path was executed end to end on 2026-08-02 with:
+Nếu repository đang nằm trên Windows, hãy chạy mọi lệnh điều khiển từ
+PowerShell. Script sẽ tự copy source sang filesystem Linux nhanh hơn trong WSL.
 
-| Component | Verified value |
-|---|---|
-| Host GPU | NVIDIA GeForce RTX 4080 SUPER, 16,376 MiB, compute capability 8.9 |
-| Windows driver | 591.86 |
-| Runtime | Ubuntu 22.04 on WSL2, kernel 6.18.33.2 |
-| Python | 3.12.13 |
-| vLLM | 0.25.1 |
-| PyTorch / CUDA build | 2.11.0+cu130 / CUDA 13.0 |
-| Model | `LiquidAI/LFM2.5-1.2B-Instruct` revision `868df74d...` |
-| Smoke result | 4 requested, 4 successful, 0 failed |
+```mermaid
+flowchart LR
+    A["Windows repository"] --> B["PowerShell bootstrap"]
+    B --> C["Ubuntu 22.04 WSL2"]
+    C --> D["WSL ext4 mirror"]
+    D --> E["Pinned Python + vLLM"]
+    E --> F["Doctor"]
+    F --> G["Smoke: 4 requests"]
+    G --> H["Baseline: 420 requests"]
+    H --> I["A/B/A: 1,260 requests"]
+    I --> J["Decision + drift guard"]
+```
 
-The first model start may download weights and compile/cache Ada kernels. A
-later start is faster. The smoke test only proves that installation, model
-loading, streaming and evidence capture work; its tiny cold-run latency is not
-a benchmark score.
+Ba lệnh quan trọng nhất, chạy tại repository root trong PowerShell:
 
-## 1. Prerequisites
+```powershell
+# 1. Cài đặt và xác nhận model có thể serve
+.\scripts\rtx4080_bootstrap.ps1 -Run smoke
 
-From PowerShell:
+# 2. Đo một baseline 70 conversations × 6 turns
+.\scripts\rtx4080_bootstrap.ps1 -Run baseline
+
+# 3. So sánh R0 → candidate → R0′ và kiểm tra drift
+.\scripts\rtx4080_bootstrap.ps1 -Run aba
+```
+
+Không cần mở server thủ công, không cần Docker và không cần cài CUDA Toolkit
+đầy đủ trong Ubuntu.
+
+## Trước khi bắt đầu
+
+Bạn cần:
+
+- Windows 10/11 với NVIDIA driver đang hoạt động;
+- RTX 4080 Super 16 GB;
+- Ubuntu 22.04 được cài dưới WSL2;
+- khoảng 25 GB disk trống và Internet cho lần cài/model download đầu tiên;
+- đóng game, Stable Diffusion, trình render hoặc chương trình khác đang dùng VRAM.
+
+Driver GPU nằm trên Windows. **Không cài `nvidia-driver-*` bên trong Ubuntu
+WSL.** WSL sẽ map driver Windows vào Linux.
+
+## Bước 1 — xác nhận đúng Ubuntu 22.04 WSL2
+
+Mở PowerShell. Các lệnh sau không cần Administrator nếu WSL đã được cài:
 
 ```powershell
 wsl --list --verbose
+wsl -d Ubuntu-22.04 -- cat /etc/os-release
 wsl -d Ubuntu-22.04 -- nvidia-smi
 ```
 
-You need Ubuntu 22.04 running as WSL version 2 and the GPU visible inside it.
-Keep the NVIDIA display driver on Windows; do not install a Linux display
-driver inside WSL. The setup needs `curl` and `rsync` in Ubuntu. On the tested
-machine both were already present. If doctor reports one missing:
+Kết quả cần thấy:
+
+```text
+NAME             STATE    VERSION
+Ubuntu-22.04     ...      2
+
+PRETTY_NAME="Ubuntu 22.04..."
+NVIDIA GeForce RTX 4080 SUPER
+```
+
+Nếu chưa có distro, chỉ bước cài này cần PowerShell chạy với Administrator:
+
+```powershell
+wsl --install -d Ubuntu-22.04
+wsl --update
+```
+
+Sau đó restart Windows nếu được yêu cầu, chạy `wsl -d Ubuntu-22.04` một lần
+và hoàn tất việc tạo Linux username/password.
+
+## Bước 2 — cài hai công cụ hệ thống nhỏ
+
+Mở Ubuntu:
+
+```powershell
+wsl -d Ubuntu-22.04
+```
+
+Trong terminal Ubuntu, chạy:
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y curl rsync
+exit
 ```
 
-## 2. One-command setup and smoke test
+`curl` tải trình quản lý Python `uv`. `rsync` copy repository từ `/mnt/c` sang
+WSL ext4. Setup sẽ tự cung cấp compiler cho Triton nếu Ubuntu chưa có
+`gcc`/`clang`; bạn không cần tự cài CUDA Toolkit hoặc `nvcc`.
 
-Run this from the repository root in PowerShell:
+## Bước 3 — đi đến repository trong PowerShell
+
+Ví dụ:
+
+```powershell
+cd C:\Users\YOUR_NAME\source\repos\cuda_vllm_optimize
+Test-Path .\scripts\rtx4080_bootstrap.ps1
+```
+
+`Test-Path` phải trả `True`. Không chạy script từ thư mục `scripts`; hãy đứng ở
+repository root như ví dụ trên.
+
+## Bước 4 — setup và smoke test
 
 ```powershell
 .\scripts\rtx4080_bootstrap.ps1 -Run smoke
 ```
 
-The command:
+Lần đầu có thể mất nhiều phút vì phải tải Python, vLLM/PyTorch/CUDA wheels và
+model. Script thực hiện tuần tự:
 
-1. detects the real RTX 4080 Super through WSL;
-2. mirrors the checkout from `/mnt/c` to `~/src/cuda-vllm-optimize` on WSL ext4;
-3. installs `uv`, Python 3.12 and a dedicated virtual environment;
-4. pins vLLM 0.25.1 and installs the replay harness;
-5. supplies a portable C compiler for Triton when Ubuntu has no compiler;
-6. starts vLLM, waits for health, sends four streamed requests and stops it;
-7. saves the exact config, software/hardware manifest, raw JSONL and server log.
+1. chọn chính xác distro `Ubuntu-22.04`;
+2. xác nhận GPU qua `nvidia-smi`;
+3. mirror Windows checkout vào `~/src/cuda-vllm-optimize` trên WSL ext4;
+4. tạo venv `~/.venvs/lfm-racebench-rtx4080` với Python 3.12;
+5. pin vLLM 0.25.1 và model revision;
+6. chạy doctor;
+7. start vLLM, đợi health endpoint, gửi 4 streaming requests rồi stop server;
+8. lưu config, manifest, server log và raw request records.
 
-Setup is idempotent. Re-running it reuses the environment and model cache.
+Checkpoint thành công ở cuối output:
 
-Use setup without a run or only run the environment checks:
+```text
+Overall: READY
+requested: 4
+successful: 4
+failed: 0
+Artifacts: /home/<linux-user>/src/cuda-vllm-optimize/results/rtx4080/...
+```
+
+Smoke chỉ xác nhận environment và request flow hoạt động. Không dùng TTFT,
+TPOT hoặc ERS của bốn request này làm benchmark.
+
+### Chỉ setup, không chạy model
 
 ```powershell
 .\scripts\rtx4080_bootstrap.ps1
+```
+
+### Chỉ chạy doctor sau khi setup
+
+```powershell
 .\scripts\rtx4080_bootstrap.ps1 -DoctorOnly
 ```
 
-## 3. Run from inside Ubuntu WSL
+`-DoctorOnly` là kiểm tra **sau setup**. Nếu venv chưa tồn tại, launcher sẽ yêu
+cầu chạy setup trước.
 
-After setup:
+## Bước 5 — chạy baseline 420 requests
 
-```bash
-source ~/.venvs/lfm-racebench-rtx4080/bin/activate
-cd ~/src/cuda-vllm-optimize
-
-python scripts/rtx4080_lab.py doctor
-python scripts/rtx4080_lab.py command
-python scripts/rtx4080_lab.py run --mode smoke
-```
-
-`command` prints the exact `vllm serve` invocation without starting it. The
-checked-in baseline is [configs/vllm/rtx4080-r0.args](configs/vllm/rtx4080-r0.args).
-
-## 4. Reproduce the 70 × 6 workload
-
-The baseline run creates 70 conversations with six causal turns each: 420
-requests in total. Poisson arrivals use a reproducible seed. The rate of 7
-requests/s is an explicit local assumption because the original article did not
-publish the contest lambda.
-
-From PowerShell:
+Chỉ tiếp tục khi smoke có `failed: 0`:
 
 ```powershell
 .\scripts\rtx4080_bootstrap.ps1 -Run baseline
 ```
 
-Or from Ubuntu WSL:
+Workload mặc định:
 
-```bash
-python scripts/rtx4080_lab.py run --mode baseline
-```
+| Thuộc tính | Giá trị |
+|---|---:|
+| Conversations | 70 |
+| Turns mỗi conversation | 6 |
+| Tổng requests | 420 |
+| Arrival model | Poisson |
+| Local assumed rate | 7 requests/s |
+| Max output | 64 tokens |
+| Seed | 2025 |
 
-Override workload assumptions without editing code:
+Turn sau luôn đợi turn trước của cùng conversation, nên đây không phải 420
+independent prompts. `7 requests/s` là giả định local vì bài viết không công
+bố lambda chính thức.
 
-```bash
-python scripts/rtx4080_lab.py run --mode baseline \
-  --conversations 70 --turns 6 --rate 7 \
-  --max-tokens 64 --seed 2025
-```
-
-Do not compare the local absolute ERS with the contest leaderboard. Use the
-local run to validate semantics and compare candidates on the same machine.
-
-## 5. Run a controlled R0/B/R0′ experiment
-
-The first candidate changes exactly one server option: prefix caching. The
-orchestrator audits this diff before it starts anything and then runs:
+Checkpoint thành công:
 
 ```text
-R0 baseline → B prefix-cache candidate → R0′ baseline return → paired comparison
+requested: 420
+successful: 420
+failed: 0
+metric_eligible: 420
 ```
+
+## Bước 6 — chạy thí nghiệm R0/B/R0′
 
 ```powershell
 .\scripts\rtx4080_bootstrap.ps1 -Run aba
 ```
 
-or:
+Một block mặc định chạy ba server tuần tự:
+
+```text
+R0  baseline
+ ↓  stop server hoàn toàn
+B   cùng config, chỉ thêm --enable-prefix-caching
+ ↓  stop server hoàn toàn
+R0′ baseline quay lại
+ ↓
+paired statistics + bootstrap 95% CI + drift decision
+```
+
+Mỗi stage có 420 requests, tổng cộng 1,260. Trên máy đã kiểm chứng, block mất
+khoảng bốn phút sau khi environment và model cache đã sẵn sàng. Terminal có
+thể im lặng trong lúc replay; không đóng cửa sổ nếu chưa thấy error hoặc
+`Artifacts:`.
+
+Đọc trường sau trong `comparison.json`:
+
+```json
+{
+  "decision": {
+    "classification": "inconclusive_due_to_drift",
+    "promote": false
+  }
+}
+```
+
+Quy tắc:
+
+- `candidate_faster_pending_correctness`: performance signal qua drift gate,
+  nhưng vẫn cần correctness và nhiều block lặp lại;
+- `uncertain`: confidence interval đi qua 0;
+- `reject_slower` hoặc `reject_failures`: không tiếp tục candidate;
+- `inconclusive_due_to_drift`: R0′ thay đổi đủ lớn để không thể gán gain cho B;
+- `incomplete_without_baseline_return`: thiếu R0′, không được promote.
+
+## Bước 7 — tìm và mở kết quả từ Windows
+
+Khi dùng PowerShell route, benchmark **không chạy từ `/mnt/c`**. Source được
+mirror và kết quả nằm trong WSL:
 
 ```bash
+~/src/cuda-vllm-optimize/results/rtx4080/<timestamp>/
+```
+
+Liệt kê từ PowerShell:
+
+```powershell
+wsl -d Ubuntu-22.04 -- bash -lc 'ls -lt $HOME/src/cuda-vllm-optimize/results/rtx4080 | head'
+```
+
+Mở bằng Windows Explorer:
+
+```powershell
+explorer.exe \\wsl.localhost\Ubuntu-22.04\home
+```
+
+Sau đó chọn Linux username của bạn → `src` → `cuda-vllm-optimize` →
+`results` → `rtx4080`.
+
+Mỗi result directory có:
+
+```text
+experiment-plan.json       exact commands, seed, workload và candidate diff
+doctor.json                environment gate
+R0-*.args                  server arguments thực sự đã dùng
+R0-*-manifest.json         GPU, driver, package versions và source commit
+R0-*-server.log            model load, graph capture, warning/error
+R0-*.jsonl                 raw record của từng request + summary
+comparison.json            chỉ có ở A/B/A
+```
+
+## Alternative — chạy hoàn toàn bên trong WSL
+
+Chỉ dùng route này nếu repository đã được clone trực tiếp vào filesystem Linux,
+ví dụ `~/src/cuda-vllm-optimize`. Đừng trộn command của hai route trong cùng
+một lần setup.
+
+```powershell
+wsl -d Ubuntu-22.04
+```
+
+```bash
+sudo apt-get update
+sudo apt-get install -y git curl
+
+mkdir -p ~/src
+cd ~/src
+ssh -T git@github.com        # xác nhận SSH key cũng có trong WSL
+git clone git@github.com:buicongnguyen/cuda-vllm-optimize.git
+cd cuda-vllm-optimize
+
+bash scripts/rtx4080_setup_wsl.sh
+source ~/.venvs/lfm-racebench-rtx4080/bin/activate
+
+python scripts/rtx4080_lab.py doctor
+python scripts/rtx4080_lab.py run --mode smoke
+python scripts/rtx4080_lab.py run --mode baseline
 python scripts/rtx4080_lab.py run --mode aba
 ```
 
-The comparison reports paired mean/median/p95/p99 deltas, bootstrap 95%
-confidence intervals, faster/slower/uncertain classification, ERS delta and
-R0→R0′ drift. A candidate is not promoted when its interval crosses zero or
-when baseline-return drift is comparable to the apparent gain.
+Trong route này, source và results đều nằm ngay trong clone WSL hiện tại; setup
+không tạo thêm mirror. SSH agent/key của Windows không tự động luôn xuất hiện
+trong WSL; nếu `ssh -T` fail, cấu hình GitHub SSH key trong WSL trước hoặc clone
+read-only bằng HTTPS.
 
-### Verified A/B/A result on this PC
+## Cấu hình 16 GB đang dùng
 
-The complete default block ran in about four minutes and all three stages
-finished 420/420 requests with zero failures:
+Baseline nằm tại
+[`configs/vllm/rtx4080-r0.args`](configs/vllm/rtx4080-r0.args):
+
+- `--max-model-len=4096` để giảm state/graph pressure;
+- `--gpu-memory-utilization=0.88` để chừa VRAM cho runtime;
+- `--max-num-seqs=80` để phủ 70 conversations có margin;
+- `--max-num-batched-tokens=4096`;
+- `dtype=auto`, không trộn quantization vào baseline đầu tiên;
+- pinned model revision và seed.
+
+Launcher tự đặt `VLLM_USE_FLASHINFER_SAMPLER=0`. Với wheel vLLM 0.25.1 trên
+Ada, FlashInfer sampler có thể rơi vào JIT path đòi full `nvcc`; torch sampler
+là path đã chạy thành công trên stock Ubuntu WSL2 của máy này.
+
+## Kết quả đã kiểm chứng và cách diễn giải
+
+Full A/B/A đã hoàn tất 1,260/1,260 requests, zero failures:
 
 | Stage | Mean TTFT | Mean TPOT | Quoted-formula ERS |
 |---|---:|---:|---:|
@@ -151,96 +331,77 @@ finished 420/420 requests with zero failures:
 | B · prefix cache | 19.729 ms | 3.943 ms | 70.184 |
 | R0′ | 17.743 ms | 3.973 ms | 70.460 |
 
-B looked faster than the first R0 and its paired 95% CIs were below zero. It
-still **must not be promoted from this block**: unchanged R0′ improved by
-4.629 ERS, more than B's 4.352. The initial R0 was affected by warm-up,
-clock or persistent cache state. This is the concrete reason the workflow
-requires baseline return instead of accepting a simple R0/B comparison. The
-machine-readable summary is
-[data/rtx4080-verified-aba-summary.json](data/rtx4080-verified-aba-summary.json).
+B trông nhanh hơn R0, nhưng R0′ không có prefix caching còn nhanh hơn B. Vì
+vậy kết luận đúng là **không promote**: warm-up, clocks hoặc persistent cache
+đã làm block bị drift. Đây chính là lý do không dùng A/B đơn giản.
 
-To test another hypothesis, copy the candidate args file, make one change and
-pass it explicitly:
+Summary máy đọc được:
+[`data/rtx4080-verified-aba-summary.json`](data/rtx4080-verified-aba-summary.json).
+
+## Logic cho bước tối ưu tiếp theo
+
+Sau mỗi A/B/A block:
+
+1. Có request fail hoặc output sai → sửa correctness, không đọc performance.
+2. R0′ drift lớn → ổn định nhiệt độ/clocks/background load và repeat block.
+3. CI đi qua 0 → candidate chưa thắng noise; repeat trước khi thêm flag khác.
+4. TTFT và TPOT đi ngược chiều → tách queue/prefill khỏi decode để profile.
+5. Signal ổn định → dùng Nsight Systems tìm critical path.
+6. Chỉ dùng Nsight Compute với kernel đã chọn.
+7. Chỉ viết/fuse kernel khi measured contribution có thể vượt noise floor.
+
+## Troubleshooting theo thứ tự
+
+### `Ubuntu-22.04` không tồn tại hoặc VERSION không phải 2
+
+```powershell
+wsl --list --verbose
+wsl --set-version Ubuntu-22.04 2
+```
+
+### `nvidia-smi` không chạy trong WSL
+
+Update Windows NVIDIA driver và chạy `wsl --update`. Không cài Linux display
+driver trong WSL.
+
+### PowerShell chặn `.ps1`
+
+Chỉ bypass cho process hiện tại:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\rtx4080_bootstrap.ps1 -Run smoke
+```
+
+### `-DoctorOnly` báo environment chưa tồn tại
+
+Đúng behavior: chạy setup trước.
+
+```powershell
+.\scripts\rtx4080_bootstrap.ps1
+.\scripts\rtx4080_bootstrap.ps1 -DoctorOnly
+```
+
+### OOM trong graph capture
+
+Đóng ứng dụng dùng GPU. Nếu vẫn OOM, copy baseline args thành config mới và thử
+`--gpu-memory-utilization=0.82`. Không trộn kết quả eager và graph trong cùng
+baseline family.
+
+### Triton báo thiếu C compiler
+
+Chạy lại setup. Script cài portable Zig compiler wrapper nếu không có
+`gcc`/`clang`.
+
+### FlashInfer yêu cầu `nvcc`
+
+Chạy qua `rtx4080_lab.py`/PowerShell launcher. Nếu serve thủ công, export:
 
 ```bash
-python scripts/rtx4080_lab.py run --mode aba \
-  --candidate-config configs/vllm/my-one-change.args
+export VLLM_USE_FLASHINFER_SAMPLER=0
 ```
 
-## 6. Understand the RTX-specific choices
+### Windows checkout thay đổi nhưng WSL chưa thấy
 
-The local baseline deliberately starts conservatively:
-
-- `--max-model-len=4096`: less state and graph pressure than the article's 8192.
-- `--gpu-memory-utilization=0.88`: leaves room on a 16 GB desktop GPU.
-- `--max-num-seqs=80`: covers 70 concurrent conversations with margin.
-- BF16/`dtype=auto`: avoids mixing quantization into the first baseline.
-- pinned model revision and seed: prevents silent model/config changes.
-- `VLLM_USE_FLASHINFER_SAMPLER=0`: vLLM 0.25.1 otherwise may JIT a FlashInfer
-  sampler for Ada and require a full `nvcc` toolkit. The supported torch sampler
-  lets a stock WSL2 machine run reproducibly.
-- portable Zig C compiler: Triton needs a host linker for generated launchers;
-  the setup provides one when `gcc`/`clang` is absent.
-
-These choices are a safe starting family, not a winning configuration. Change
-one variable at a time and create a new baseline family after any vLLM, model,
-PyTorch, driver or graph-mode change.
-
-## 7. Evidence produced by every run
-
-Each timestamped folder under `results/rtx4080/` contains:
-
-```text
-experiment-plan.json       workload, seed, configs, exact commands and A/B diff
-doctor.json                preflight result
-R0-*.args                  copied immutable server arguments
-R0-*-manifest.json         GPU, driver, packages, CUDA build and source commit
-R0-*-server.log            model load, graph capture, warnings and errors
-R0-*.jsonl                 one raw record per request plus summary
-comparison.json            paired statistics and drift report for A/B/A
-```
-
-`results/rtx4080/` is intentionally git-ignored: raw runs can be large and are
-machine evidence, not source. Attach a selected result folder to a release or
-issue when sharing a conclusion.
-
-## 8. Logic for the next performance step
-
-Use this decision order after a clean A/B/A block:
-
-1. If requests fail or output semantics differ, fix correctness first.
-2. If R0′ moved materially from R0, stabilize clocks/temperature/background
-   load and repeat; do not credit B.
-3. If TTFT improves but TPOT regresses, inspect prefill/decode separately.
-4. If both confidence intervals cross zero, repeat enough blocks to estimate
-   the noise floor before adding another flag.
-5. If a capacity feature helps only near concurrency 70, preserve queue depth,
-   cache hit rate and batch-size evidence; an idle microbenchmark cannot explain it.
-6. Profile with Nsight Systems only after the harness is stable. Use the timeline
-   to select a critical path; use Nsight Compute only on a selected kernel.
-7. Implement kernel fusion only if launches remain separate outside graph or
-   compiler fusion and their measured contribution can exceed the noise floor.
-
-The deeper terminology and code-learning sequence is on the
-[learning page](https://buicongnguyen.github.io/cuda-vllm-optimize/learn.html),
-while the visual experiment logic is on the
-[decision-flow page](https://buicongnguyen.github.io/cuda-vllm-optimize/decision-flow.html).
-
-## Troubleshooting
-
-**`torch.cuda.is_available()` is false** — update WSL and the Windows NVIDIA
-driver, confirm the distro is WSL2, then retry `nvidia-smi` inside Ubuntu.
-
-**Server exits during graph capture** — close other GPU applications. If it is
-really VRAM pressure, create a new config with utilization 0.82. Do not silently
-mix eager-mode results with graph-mode results.
-
-**`failed to find a C compiler`** — rerun the setup script. It installs the
-tested portable compiler wrapper when no system compiler exists.
-
-**FlashInfer asks for `nvcc`** — launch through `rtx4080_lab.py`; it sets the
-documented torch-sampler fallback. If you start `vllm serve` manually, export
-`VLLM_USE_FLASHINFER_SAMPLER=0` first.
-
-**The Windows checkout and WSL copy differ** — rerun the PowerShell bootstrap.
-The Windows checkout is the source and is mirrored to WSL before execution.
+Chạy lại bất kỳ bootstrap command nào. Setup luôn rsync Windows source sang WSL
+trước khi run và giữ nguyên các result directories cũ.

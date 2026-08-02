@@ -113,11 +113,25 @@ class SiteCheckTests(unittest.TestCase):
         self.assertIn("scripts/rtx4080_manifest.py", page)
         self.assertIn("scripts/rtx4080_compare.py", page)
         self.assertIn("Method reproduction—not H200 score equivalence", page)
+        self.assertIn('id="quickstart"', page)
+        self.assertIn("RECOMMENDED PATH / WINDOWS → UBUNTU 22.04 WSL2", page)
         self.assertIn("rtx4080_bootstrap.ps1 -Run smoke", page)
         self.assertIn("VLLM_USE_FLASHINFER_SAMPLER=0", page)
+        self.assertIn("-DoctorOnly</code> chỉ chạy sau setup", page)
+        self.assertIn("wsl.localhost", page)
         for mode in ("smoke", "baseline", "aba"):
             self.assertIn(f"-Run {mode}", github_runbook)
-        self.assertIn("4 requested, 4 successful, 0 failed", github_runbook)
+        self.assertIn("successful: 4", github_runbook)
+        self.assertIn("failed: 0", github_runbook)
+        for instruction in (
+            "wsl --list --verbose",
+            "Không chạy script từ thư mục `scripts`",
+            "Alternative — chạy hoàn toàn bên trong WSL",
+            "Đừng trộn command của hai route",
+            "`-DoctorOnly` là kiểm tra **sau setup**",
+            "comparison.json",
+        ):
+            self.assertIn(instruction, github_runbook)
         for step in range(9):
             self.assertIn(f"LOGIC REVIEW {step:02d}", page)
 

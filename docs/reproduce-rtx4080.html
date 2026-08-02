@@ -29,7 +29,7 @@
             <h1>Reproduce trên<br><span>RTX 4080 Super.</span></h1>
             <p class="lede">Một runbook từ máy trắng đến raw timestamps: chuẩn bị WSL2, pin environment, serve LFM2.5, replay 70 × 6 turns, profile, A/B config và mở đường cho kernel work.</p>
             <div class="hero-actions">
-              <a class="button primary" href="#setup">Bắt đầu setup →</a>
+              <a class="button primary" href="#quickstart">Chạy với WSL2 →</a>
               <a class="button" href="https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/RTX4080_RUNBOOK.md">GitHub runbook ↗</a>
             </div>
           </div>
@@ -66,6 +66,7 @@
         <div class="shell runbook-layout">
           <aside class="runbook-toc" aria-label="Mục lục runbook">
             <strong>On this page</strong>
+            <a href="#quickstart">Quickstart · Ubuntu 22.04</a>
             <a href="#contract">00 · Reproduction contract</a>
             <a href="#setup">01 · Windows + WSL2</a>
             <a href="#install">02 · Pin environment</a>
@@ -79,6 +80,39 @@
           </aside>
 
           <div class="runbook-content">
+            <section class="run-step panel" id="quickstart">
+              <span class="run-index">RECOMMENDED PATH / WINDOWS → UBUNTU 22.04 WSL2</span>
+              <h2>Ba commands để setup, đo baseline và chạy A/B/A</h2>
+              <p>Dùng route này khi repository đang nằm trên Windows. Mở PowerShell tại <strong>repository root</strong>; launcher sẽ tự mirror source sang WSL ext4, nên vLLM không benchmark trực tiếp từ <code>/mnt/c</code>.</p>
+              <h3>0. Preflight — chạy một lần</h3>
+              <pre><code>wsl --list --verbose
+wsl -d Ubuntu-22.04 -- cat /etc/os-release
+wsl -d Ubuntu-22.04 -- nvidia-smi
+
+# Expected: Ubuntu-22.04 là VERSION 2 và GPU là RTX 4080 SUPER.</code></pre>
+              <h3>1. Setup + smoke — phải pass trước</h3>
+              <pre><code>cd C:\path\to\cuda_vllm_optimize
+.\scripts\rtx4080_bootstrap.ps1 -Run smoke</code></pre>
+              <div class="run-check"><b>PASS</b><span>Output có <code>Overall: READY</code>, <code>successful: 4</code>, <code>failed: 0</code> và đường dẫn <code>Artifacts:</code>.</span></div>
+              <h3>2. Baseline — 420 requests</h3>
+              <pre><code>.\scripts\rtx4080_bootstrap.ps1 -Run baseline</code></pre>
+              <div class="run-check"><b>PASS</b><span>Summary có <code>"requested": 420</code>, <code>"successful": 420</code>, <code>"failed": 0</code>. Smoke latency không thay thế baseline này.</span></div>
+              <h3>3. A/B/A — 1,260 requests + drift guard</h3>
+              <pre><code>.\scripts\rtx4080_bootstrap.ps1 -Run aba</code></pre>
+              <div class="run-check"><b>READ</b><span>Mở <code>comparison.json</code> và đọc <code>decision.classification</code> cùng <code>decision.promote</code>; không kết luận chỉ từ ERS candidate.</span></div>
+              <aside class="spec-callout"><strong>Quan trọng:</strong> <code>-DoctorOnly</code> chỉ chạy sau setup. Kết quả nằm trong <code>~/src/cuda-vllm-optimize/results/rtx4080/</code> của WSL, không nằm cạnh Windows checkout.</aside>
+              <div class="logic-review">
+                <div class="logic-head"><span>RUN CONTRACT</span><b>Một gate pass mới đi sang gate kế tiếp</b></div>
+                <div class="logic-grid">
+                  <div><small>ENV</small><p>Ubuntu 22.04 · WSL version 2 · GPU visible.</p></div>
+                  <div><small>FUNCTION</small><p>Smoke 4/4 chứng minh model/stream/evidence path.</p></div>
+                  <div><small>MEASURE</small><p>Baseline 420/420 mới tạo latency sample.</p></div>
+                  <div><small>DECIDE</small><p>A/B/A + R0′ mới có quyền xét performance.</p></div>
+                </div>
+                <div class="next-step"><span>ROUTES</span><p>Repository trên Windows → dùng PowerShell ở trên. Repository clone trực tiếp trong <code>~/src</code> → dùng <code>bash scripts/rtx4080_setup_wsl.sh</code>; không trộn hai route.</p></div>
+              </div>
+            </section>
+
             <section class="run-step panel" id="contract">
               <span class="run-index">00 / REPRODUCTION CONTRACT</span>
               <h2>Định nghĩa “reproduce” trước khi cài gì</h2>
@@ -165,9 +199,12 @@ cat /etc/os-release
               <pre><code># Setup + end-to-end smoke test
 .\scripts\rtx4080_bootstrap.ps1 -Run smoke
 
-# Setup only / preflight only
+# Setup only
 .\scripts\rtx4080_bootstrap.ps1
+
+# Post-setup doctor only
 .\scripts\rtx4080_bootstrap.ps1 -DoctorOnly</code></pre>
+              <p class="run-note"><strong>Hai route tách biệt:</strong> Windows checkout dùng PowerShell và WSL mirror như trên. Nếu clone repo trực tiếp trong <code>~/src</code>, chạy <code>bash scripts/rtx4080_setup_wsl.sh</code> bên trong Ubuntu; không trộn path của hai route.</p>
               <h3>Phần script tự thực hiện</h3>
               <pre><code>Windows repo → rsync → ~/src/cuda-vllm-optimize
                       ↓
@@ -182,7 +219,7 @@ source ~/.venvs/lfm-racebench-rtx4080/bin/activate
 cd ~/src/cuda-vllm-optimize
 python scripts/rtx4080_lab.py doctor
 python scripts/rtx4080_lab.py command</code></pre>
-              <p class="run-note"><strong>Why save <code>--help</code>?</strong> Option names/defaults change theo vLLM version. Runbook không âm thầm coi docs “latest” là contract của artifact đã pin.</p>
+              <p class="run-note"><strong>Result location:</strong> PowerShell route lưu artifacts tại <code>~/src/cuda-vllm-optimize/results/rtx4080/</code> trong WSL. Mở từ Windows qua <code>\\wsl.localhost\Ubuntu-22.04\home\&lt;linux-user&gt;\src\cuda-vllm-optimize\results\rtx4080</code>.</p>
               <div class="run-check"><b>PASS</b><span>Doctor báo <code>READY</code>: CC 8.9, CUDA available, vLLM 0.25.1, PyTorch cu130, Triton host compiler và baseline config đều pass.</span></div>
               <div class="logic-review">
                 <div class="logic-head"><span>LOGIC REVIEW 02</span><b>Artifact này có thể tái lập không?</b></div>
@@ -418,17 +455,16 @@ torch.testing.assert_close(actual_state, reference_state, rtol=..., atol=...)</c
                 <div><span>3</span><b>Causal evidence</b><p>Timeline/counter giải thích được gain; không chỉ leaderboard movement.</p></div>
                 <div><span>4</span><b>Target retest</b><p>SM90/MIG chạy lại correctness, autotune và end-to-end before contest submit.</p></div>
               </div>
-              <pre><code>results/rtx4080/
-├── manifest.json
-├── requirements.lock.txt
-├── vllm-serve-help.txt
-├── R0-server.log
+              <pre><code>results/rtx4080/&lt;timestamp&gt;/
+├── experiment-plan.json
+├── doctor.json
+├── R0-baseline.args
+├── R0-baseline-manifest.json
+├── R0-baseline-server.log
 ├── R0-baseline.jsonl
-├── R1-server.log
-├── R1-prefix-cache.jsonl
-├── R0-prime.jsonl
-├── R0-systems.nsys-rep
-              └── selected-kernel.ncu-rep</code></pre>
+├── B-candidate.args / manifest / server.log / jsonl
+├── R0-prime.args / manifest / server.log / jsonl
+└── comparison.json</code></pre>
               <div class="run-check"><b>DONE</b><span>Candidate local được ghi là <em>SM89-validated</em>, không phải <em>H200-proven</em>. Chỉ target run mới nâng evidence state.</span></div>
               <div class="logic-review">
                 <div class="logic-head"><span>LOGIC REVIEW 08</span><b>Promote, repeat, retune hay reject?</b></div>
@@ -446,7 +482,10 @@ torch.testing.assert_close(actual_state, reference_state, rtol=..., atol=...)</c
               <span class="run-index">TROUBLESHOOTING</span>
               <h2>Các lỗi có khả năng gặp nhất</h2>
               <div class="trouble-grid">
+                <details><summary><b><code>Ubuntu-22.04</code> không tồn tại</b></summary><p>Chạy <code>wsl --list --verbose</code>. Cài bằng PowerShell Administrator: <code>wsl --install -d Ubuntu-22.04</code>; sau đó xác nhận VERSION là 2.</p></details>
                 <details><summary><b><code>torch.cuda.is_available() == False</code></b></summary><p>Kiểm tra Windows NVIDIA driver, <code>wsl --update</code>, distro là WSL2 và <code>nvidia-smi</code> trong WSL. Không cài Linux display driver để “sửa”.</p></details>
+                <details><summary><b>PowerShell chặn script</b></summary><p>Chỉ bypass process hiện tại: <code>Set-ExecutionPolicy -Scope Process Bypass</code>, rồi chạy lại bootstrap command.</p></details>
+                <details><summary><b><code>-DoctorOnly</code> báo chưa có environment</b></summary><p>Đây là post-setup check. Chạy <code>.\scripts\rtx4080_bootstrap.ps1</code> trước, sau đó mới dùng <code>-DoctorOnly</code>.</p></details>
                 <details><summary><b>OOM khi vLLM capture graph</b></summary><p>Hạ utilization/context/capture sizes; thử eager chỉ để phân loại lỗi. Ghi rõ cấu hình nào dùng graph khi so điểm.</p></details>
                 <details><summary><b>Prefix cache crash trên LFM2</b></summary><p>Smoke-test chính candidate bằng <code>run --mode smoke --baseline-config configs/vllm/rtx4080-prefix-cache.args</code>. Không copy cache flag từ docs version khác; giữ log và loại candidate nếu pinned version không hỗ trợ hybrid state.</p></details>
                 <details><summary><b>Triton báo thiếu C compiler</b></summary><p>Chạy lại bootstrap. Setup cài portable Zig wrapper đã kiểm chứng khi WSL không có <code>gcc</code>/<code>clang</code>, đồng thời xử lý WSL <code>libcuda.so.1</code>.</p></details>

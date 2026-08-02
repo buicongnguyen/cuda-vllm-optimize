@@ -95,6 +95,16 @@
                 </table>
               </div>
               <aside class="spec-callout"><strong>Missing inputs:</strong> prompt set, output-length distribution, λ, evaluator aggregation và official vLLM image chưa có. Runbook dùng workload emulator có seed; thay chúng ngay khi nhận được evaluator thật.</aside>
+              <div class="logic-review">
+                <div class="logic-head"><span>LOGIC REVIEW 00</span><b>Local experiment có quyền trả lời câu hỏi nào?</b></div>
+                <div class="logic-grid">
+                  <div><small>INPUT</small><p>Local SM89/16GB và narrative target SM90 MIG/18GB.</p></div>
+                  <div><small>EVIDENCE</small><p>Applicability table + danh sách official inputs còn thiếu.</p></div>
+                  <div><small>INTERPRET</small><p>Local có thể falsify candidate; không thể xác nhận target score.</p></div>
+                  <div><small>DECIDE</small><p>Gắn evidence label <em>local-only</em> cho tới khi target retest.</p></div>
+                </div>
+                <div class="next-step"><span>NEXT</span><p>Nếu scope này được chấp nhận, kiểm chứng CUDA runtime. Nếu cần “reproduce contest score”, dừng và lấy evaluator/prompt/image chính thức trước.</p></div>
+              </div>
             </section>
 
             <section class="run-step panel" id="setup">
@@ -117,6 +127,16 @@ cat /etc/os-release
 # Expected: RTX 4080 SUPER xuất hiện và WSL2 kernel được nhận diện.
 # Không chạy: sudo apt install nvidia-driver-*</code></pre>
               <div class="run-check"><b>PASS</b><span><code>nvidia-smi</code> trong WSL thấy RTX 4080 Super, 16GB VRAM và driver version; distro ở WSL version 2.</span></div>
+              <div class="logic-review">
+                <div class="logic-head"><span>LOGIC REVIEW 01</span><b>Runtime failure hay code performance?</b></div>
+                <div class="logic-grid">
+                  <div><small>QUESTION</small><p>Linux process có thực sự truy cập CUDA device đúng không?</p></div>
+                  <div><small>EVIDENCE</small><p>WSL2 version, driver, CC 8.9, total/free VRAM và idle process list.</p></div>
+                  <div><small>INTERPRET</small><p>CUDA unavailable/OOM tại đây là environment defect, chưa phải vLLM bottleneck.</p></div>
+                  <div><small>DECIDE</small><p>Không tune model cho tới khi preflight ổn định sau reboot.</p></div>
+                </div>
+                <div class="next-step"><span>NEXT</span><p>Runtime pass → tạo environment pinned. Runtime fail → sửa WSL/driver rồi chạy lại đúng preflight, không thêm vLLM flags.</p></div>
+              </div>
               <div class="source-strip"><a href="https://learn.microsoft.com/en-us/windows/wsl/install">Microsoft WSL install ↗</a><a href="https://docs.nvidia.com/cuda/archive/13.2.0/wsl-user-guide/index.html">NVIDIA CUDA on WSL ↗</a><a href="https://www.nvidia.com/en-us/geforce/graphics-cards/40-series/rtx-4080-family/">RTX 4080 Super specs ↗</a></div>
             </section>
 
@@ -155,6 +175,16 @@ uv pip freeze &gt; results/rtx4080/requirements.lock.txt
 vllm serve --help &gt; results/rtx4080/vllm-serve-help.txt</code></pre>
               <p class="run-note"><strong>Why save <code>--help</code>?</strong> Option names/defaults change theo vLLM version. Runbook không âm thầm coi docs “latest” là contract của artifact đã pin.</p>
               <div class="run-check"><b>PASS</b><span>Compute capability là <code>(8, 9)</code>; manifest, frozen packages và CLI help cùng nằm trong result directory.</span></div>
+              <div class="logic-review">
+                <div class="logic-head"><span>LOGIC REVIEW 02</span><b>Artifact này có thể tái lập không?</b></div>
+                <div class="logic-grid">
+                  <div><small>QUESTION</small><p>Một run khác có dùng cùng code, defaults, wheel và driver không?</p></div>
+                  <div><small>EVIDENCE</small><p>Git SHA, package lock, manifest, model revision và exact CLI help.</p></div>
+                  <div><small>INTERPRET</small><p>Flag thiếu/default đổi nghĩa là version mismatch, không phải regression của candidate.</p></div>
+                  <div><small>DECIDE</small><p>Freeze environment; thay version phải tạo baseline family mới.</p></div>
+                </div>
+                <div class="next-step"><span>NEXT</span><p>Artifact pinned → đo functional baseline. Bất kỳ package change nào sau đây phải cập nhật manifest và quay lại bước này.</p></div>
+              </div>
               <div class="source-strip"><a href="https://docs.vllm.ai/en/latest/getting_started/quickstart/">vLLM Quickstart ↗</a><a href="https://docs.vllm.ai/en/latest/getting_started/installation/gpu/">vLLM GPU install ↗</a></div>
             </section>
 
@@ -188,6 +218,16 @@ curl -N http://127.0.0.1:8000/v1/chat/completions \
   --num-prompts 20 --request-rate 2 --max-concurrency 8</code></pre>
               <p class="run-note">Nếu OOM lúc graph capture: thử <code>--gpu-memory-utilization 0.82</code> hoặc tạm <code>--enforce-eager</code> để chẩn đoán. Đừng ghi điểm eager và graph vào cùng một baseline.</p>
               <div class="run-check"><b>PASS</b><span>20 warm-up requests không lỗi, server không restart/OOM và deterministic smoke request trả nội dung hợp lệ.</span></div>
+              <div class="logic-review">
+                <div class="logic-head"><span>LOGIC REVIEW 03</span><b>Baseline có functional và có headroom không?</b></div>
+                <div class="logic-grid">
+                  <div><small>QUESTION</small><p>Model load, graph capture, streaming và memory allocation có ổn định?</p></div>
+                  <div><small>EVIDENCE</small><p>Server log, warm-up success, post-warm VRAM và deterministic response.</p></div>
+                  <div><small>INTERPRET</small><p>OOM capture nhưng eager pass chỉ phân loại memory problem; eager chưa thành performance baseline.</p></div>
+                  <div><small>DECIDE</small><p>Chọn một graph mode/config ổn định và giữ nguyên cho R0.</p></div>
+                </div>
+                <div class="next-step"><span>NEXT</span><p>Functional pass → chạy full replay và đo client semantics. Nếu VRAM sát trần, ưu tiên capacity experiment trước kernel work.</p></div>
+              </div>
             </section>
 
             <section class="run-step panel" id="replay">
@@ -218,6 +258,16 @@ tpot_ms = (last_token - first_token) * 1000 / (completion_tokens - 1)</code></pr
               <p class="run-note"><strong>Measurement boundary:</strong> đây là client-observed latency, gồm local HTTP/frontend. <code>completion_tokens</code> lấy từ server usage; nếu server không gửi usage, script ghi rõ <code>content_event_fallback</code>. SSE chunk không được giả định luôn bằng một token.</p>
               <div class="implementation-links"><a href="https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/scripts/rtx4080_replay.py"><b>Full replay client</b><span>async scheduling, SSE parsing, causal history, JSONL evidence ↗</span></a><a href="https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/scripts/rtx4080_manifest.py"><b>Hardware manifest</b><span>driver, CUDA, packages, SM count, clocks and VRAM ↗</span></a></div>
               <div class="run-check"><b>PASS</b><span>Summary báo <code>requested=420</code>, <code>successful=420</code>, <code>failed=0</code>, <code>metric_eligible=420</code>; mọi request dùng <code>server_usage</code> nếu server hỗ trợ.</span></div>
+              <div class="logic-review">
+                <div class="logic-head"><span>LOGIC REVIEW 04</span><b>Metric đang đo server hay đo lỗi của harness?</b></div>
+                <div class="logic-grid">
+                  <div><small>QUESTION</small><p>420 requests có đúng causal history, planned arrivals và token denominator không?</p></div>
+                  <div><small>EVIDENCE</small><p>Raw JSONL, <code>server_usage</code>, error count và <code>submitted_s − scheduled_s</code>.</p></div>
+                  <div><small>INTERPRET</small><p>Schedule lag lớn có thể do causal wait/client; fallback SSE event count không đủ xác nhận TPOT.</p></div>
+                  <div><small>DECIDE</small><p>Chỉ dùng run làm performance evidence khi semantics và metric boundary đều pass.</p></div>
+                </div>
+                <div class="next-step"><span>NEXT</span><p>Chạy R0 ít nhất ba lần để có noise floor. Có hypothesis config cụ thể → step 05 A/B; chưa biết bottleneck → đi thẳng step 06 profile R0. Harness fail → sửa replay trước.</p></div>
+              </div>
               <div class="source-strip"><a href="https://docs.vllm.ai/en/latest/cli/bench/serve/">vLLM benchmark semantics ↗</a><a href="https://numpy.org/doc/stable/reference/random/generated/numpy.random.exponential.html">Poisson inter-arrivals ↗</a></div>
             </section>
 
@@ -247,7 +297,25 @@ vllm serve "$MODEL" ... $SERVER_DELTA 2&gt;&amp;1 | tee results/rtx4080/R1-serve
 # Terminal B: cùng workload, chỉ đổi output label
 python scripts/rtx4080_replay.py ... \
   --output results/rtx4080/R1-prefix-cache.jsonl</code></pre>
+              <h3>So candidate theo paired request và baseline-return drift</h3>
+              <pre><code>python scripts/rtx4080_compare.py \
+  results/rtx4080/R0-baseline.jsonl \
+  results/rtx4080/R1-prefix-cache.jsonl \
+  --baseline-return results/rtx4080/R0-prime.jsonl \
+  --bootstrap-samples 2000 --seed 2025 \
+  --output results/rtx4080/R1-comparison.json</code></pre>
               <p class="run-note">Với vLLM hiện tại, LFM2 là <code>HasInnerState</code>/<code>IsHybrid</code>; source ghi prefix cache mode <code>all</code> không được hỗ trợ và yêu cầu <code>align</code>. Luôn xác nhận lại trong source của version đã pin.</p>
+              <div class="logic-review">
+                <div class="logic-head"><span>LOGIC REVIEW 05</span><b>Candidate thắng thật hay chỉ trúng noise?</b></div>
+                <div class="logic-grid">
+                  <div><small>QUESTION</small><p>Paired TTFT/TPOT delta có nhất quán và lớn hơn R0→R0′ drift?</p></div>
+                  <div><small>EVIDENCE</small><p>Per-request delta, bootstrap 95% CI, failure count, ERS delta và baseline return.</p></div>
+                  <div><small>INTERPRET</small><p>CI qua 0 = uncertain; candidate nhanh nhưng R0′ drift tương đương = chưa causal.</p></div>
+                  <div><small>DECIDE</small><p>Faster + correctness pass → profile; uncertain → repeat; slower/error → archive.</p></div>
+                </div>
+                <div class="next-step"><span>NEXT</span><p>Chỉ profile candidate có signal. Dùng loại metric bị ảnh hưởng để chọn profiler question: TTFT → queue/prefill; TPOT → decode/launch/memory.</p></div>
+              </div>
+              <div class="implementation-links"><a href="https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/scripts/rtx4080_compare.py"><b>A/B/A comparison code</b><span>paired deltas, p95/p99, bootstrap CI and drift report ↗</span></a></div>
               <div class="source-strip"><a href="https://docs.vllm.ai/en/stable/api/vllm/model_executor/models/lfm2.html">vLLM LFM2 source/API ↗</a><a href="https://docs.vllm.ai/en/latest/features/quantization/quantized_kvcache/">FP8 KV cache ↗</a><a href="https://docs.vllm.ai/en/latest/design/cuda_graphs/">CUDA Graph modes ↗</a></div>
             </section>
 
@@ -279,6 +347,16 @@ ncu --set roofline --target-processes all \
                 <div><b>Systems evidence</b><span>host gap, sync, launch count, kernel duration, prefill/decode bucket</span></div><i>→</i><div><b>Hypothesis</b><span>launch-bound, bandwidth-bound hoặc occupancy-limited</span></div><i>→</i><div><b>Compute counter</b><span>achieved bandwidth, SOL throughput, registers, occupancy</span></div>
               </div>
               <p class="run-note">Nsight Compute trong WSL2 cần supported Windows build/driver và GPU performance counters được enable trên Windows host. Profiler overhead không được trộn vào score run.</p>
+              <div class="logic-review">
+                <div class="logic-head"><span>LOGIC REVIEW 06</span><b>Critical path bị giới hạn bởi resource nào?</b></div>
+                <div class="logic-grid">
+                  <div><small>QUESTION</small><p>Latency nằm ở host gap, synchronization, memory traffic hay kernel execution?</p></div>
+                  <div><small>EVIDENCE</small><p>Systems timeline trước; selected kernel counters sau; bucket prefill/decode/batch size.</p></div>
+                  <div><small>INTERPRET</small><p>Host gap → graph/frontend; bandwidth cao → traffic; register pressure → fusion có thể phản tác dụng.</p></div>
+                  <div><small>DECIDE</small><p>Chọn đúng một intervention với removable cost lớn hơn noise floor.</p></div>
+                </div>
+                <div class="next-step"><span>NEXT</span><p>Nếu config/runtime giải quyết bottleneck, quay lại matrix. Chỉ đi tới code patch khi profiler cho operator/kernel cụ thể và upper-bound đủ lớn.</p></div>
+              </div>
               <div class="source-strip"><a href="https://docs.nvidia.com/nsight-systems/UserGuide/">Nsight Systems guide ↗</a><a href="https://docs.nvidia.com/nsight-compute/NsightComputeCli/index.html">Nsight Compute CLI ↗</a><a href="https://docs.nvidia.com/nsight-compute/ReleaseNotes/topics/system-requirements.html">Nsight WSL requirements ↗</a></div>
             </section>
 
@@ -317,6 +395,16 @@ torch.testing.assert_close(actual_state, reference_state, rtol=..., atol=...)</c
                 <li>Retest trên SM90 H200 MIG; autotune config local không được hardcode làm universal default.</li>
               </ol>
               <p class="run-note"><strong>Important:</strong> <code>VLLM_USE_PRECOMPILED=1</code> không hợp lệ khi sửa C++/CUDA native code. Với Triton/Python kernel có thể dùng editable path; nếu thay native ABI phải full build đúng hướng dẫn của pinned vLLM.</p>
+              <div class="logic-review">
+                <div class="logic-head"><span>LOGIC REVIEW 07</span><b>Patch có loại bỏ work trên critical path không?</b></div>
+                <div class="logic-grid">
+                  <div><small>QUESTION</small><p>Patch giảm launch/bytes/sync đã đo hay chỉ làm microbenchmark đẹp?</p></div>
+                  <div><small>EVIDENCE</small><p>Reference match, microbench, counters, end-to-end replay và fallback hit-rate.</p></div>
+                  <div><small>INTERPRET</small><p>Micro win nhưng end-to-end neutral = ngoài critical path, bị graph che hoặc batch shape khác.</p></div>
+                  <div><small>DECIDE</small><p>Chỉ giữ patch khi end-to-end CI thắng và complexity/risk có lý do.</p></div>
+                </div>
+                <div class="next-step"><span>NEXT</span><p>Local pass → retune cho SM90 và target replay. Local fail/uncertain → archive evidence, quay lại profiler thay vì thêm fusion khác.</p></div>
+              </div>
               <div class="source-strip"><a href="https://docs.vllm.ai/en/latest/getting_started/installation/gpu/">vLLM editable/precompiled workflow ↗</a><a href="https://triton-lang.org/main/getting-started/tutorials/01-vector-add.html">Triton correctness + benchmark ↗</a><a href="https://docs.pytorch.org/tutorials/recipes/recipes/benchmark.html">PyTorch benchmark recipe ↗</a></div>
             </section>
 
@@ -339,8 +427,18 @@ torch.testing.assert_close(actual_state, reference_state, rtol=..., atol=...)</c
 ├── R1-prefix-cache.jsonl
 ├── R0-prime.jsonl
 ├── R0-systems.nsys-rep
-└── selected-kernel.ncu-rep</code></pre>
+              └── selected-kernel.ncu-rep</code></pre>
               <div class="run-check"><b>DONE</b><span>Candidate local được ghi là <em>SM89-validated</em>, không phải <em>H200-proven</em>. Chỉ target run mới nâng evidence state.</span></div>
+              <div class="logic-review">
+                <div class="logic-head"><span>LOGIC REVIEW 08</span><b>Promote, repeat, retune hay reject?</b></div>
+                <div class="decision-branches">
+                  <div><b>Correctness fail</b><span>Reject/fix; performance không còn ý nghĩa.</span></div>
+                  <div><b>CI uncertain</b><span>Repeat hoặc tăng sample; chưa stack candidate khác.</span></div>
+                  <div><b>SM89 pass</b><span>Đánh dấu local-validated và chuyển target gate.</span></div>
+                  <div><b>SM90 regression</b><span>Retune architecture-specific config hoặc archive.</span></div>
+                </div>
+                <div class="next-step"><span>NEXT PERFORMANCE LOOP</span><p>Candidate target pass trở thành baseline mới duy nhất. Sau đó quay lại step 04→06 để tìm bottleneck tiếp theo; không cộng gain từ các run không chung parent.</p></div>
+              </div>
             </section>
 
             <section class="run-step panel" id="troubleshoot">

@@ -1970,6 +1970,118 @@ input[type="number"]:focus {
   line-height: 1.5;
 }
 
+.logic-review {
+  margin-top: 1rem;
+  overflow: hidden;
+  border: 1px solid rgba(80, 206, 226, 0.28);
+  border-radius: 11px;
+  background: rgba(80, 206, 226, 0.035);
+}
+
+.logic-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.65rem;
+  padding: 0.75rem 0.85rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.logic-head span {
+  color: var(--amber);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.logic-head b {
+  color: var(--ink);
+  font-size: 0.84rem;
+}
+
+.logic-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.logic-grid > div {
+  min-width: 0;
+  padding: 0.75rem;
+  border-right: 1px solid var(--line);
+}
+
+.logic-grid > div:last-child {
+  border-right: 0;
+}
+
+.logic-grid small {
+  color: var(--cyan);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.logic-grid p {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.next-step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.7rem;
+  align-items: start;
+  padding: 0.75rem 0.85rem;
+  border-top: 1px solid var(--line);
+  background: rgba(123, 216, 143, 0.055);
+}
+
+.next-step span {
+  color: var(--green);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.next-step p {
+  margin: 0;
+  color: #b9dec1;
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+.decision-branches {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.decision-branches div {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.75rem;
+  border-right: 1px solid var(--line);
+}
+
+.decision-branches div:last-child {
+  border-right: 0;
+}
+
+.decision-branches b {
+  color: var(--cyan);
+  font-size: 0.72rem;
+}
+
+.decision-branches span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
 .source-strip {
   display: flex;
   flex-wrap: wrap;
@@ -2349,8 +2461,21 @@ input[type="number"]:focus {
 
   .runbook-toc,
   .implementation-links,
-  .promotion-grid {
+  .promotion-grid,
+  .logic-grid,
+  .decision-branches {
     grid-template-columns: 1fr;
+  }
+
+  .logic-grid > div,
+  .decision-branches div {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .logic-grid > div:last-child,
+  .decision-branches div:last-child {
+    border-bottom: 0;
   }
 
   .runbook-toc strong {

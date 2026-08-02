@@ -69,7 +69,10 @@ class SiteCheckTests(unittest.TestCase):
             self.assertIn(f'id="{section}"', page)
         self.assertIn("scripts/rtx4080_replay.py", page)
         self.assertIn("scripts/rtx4080_manifest.py", page)
+        self.assertIn("scripts/rtx4080_compare.py", page)
         self.assertIn("Method reproduction—not H200 score equivalence", page)
+        for step in range(9):
+            self.assertIn(f"LOGIC REVIEW {step:02d}", page)
 
     def test_reader_documents_use_html_routes(self) -> None:
         root = Path(__file__).resolve().parents[1] / "docs"

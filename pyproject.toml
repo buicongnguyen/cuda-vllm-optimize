@@ -12,6 +12,9 @@ license = {text = "MIT"}
 authors = [{name = "Viettel AI Race community analysis"}]
 dependencies = []
 
+[project.optional-dependencies]
+rtx4080 = ["httpx>=0.27,<1"]
+
 [project.scripts]
 racebench = "racebench.cli:main"
 

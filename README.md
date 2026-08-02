@@ -2,7 +2,8 @@
 
 **Website:** [Problem → requirements → experiments](https://buicongnguyen.github.io/cuda-vllm-optimize/problem.html) ·
 [Experiment flow](https://buicongnguyen.github.io/cuda-vllm-optimize/) ·
-[Learning path](https://buicongnguyen.github.io/cuda-vllm-optimize/learn.html)
+[Learning path](https://buicongnguyen.github.io/cuda-vllm-optimize/learn.html) ·
+[RTX 4080 Super runbook](https://buicongnguyen.github.io/cuda-vllm-optimize/reproduce-rtx4080.html)
 
 Một repository **benchmark-first** để phân tích và tối ưu serving
 `LiquidAI/LFM2.5-1.2B-Instruct` bằng vLLM trên H200 MIG `1g.18gb`, 3 vCPU và
@@ -41,6 +42,7 @@ tests/                  regression tests cho công thức và dữ liệu benchm
 data/claims.json        audit: verified / contradicted / inferred / unverified
 experiments/ledger.csv  sổ thí nghiệm one-change-at-a-time
 configs/                workload và vLLM args mẫu, có ghi rõ phần chưa biết
+scripts/rtx4080_*.py     hardware manifest + 70×6 streaming replay client
 docs/                   GitHub Pages site + analysis, decision flow, score strategy
 ```
 
@@ -69,6 +71,10 @@ racebench workload --conversations 70 --turns 6 --rate 7 --seed 2025
 
 `--rate 7` chỉ là giá trị mẫu vì bài viết nói arrival Poisson nhưng không cho
 lambda. Phải thay bằng tham số chính thức trước khi dùng kết quả.
+
+Để chạy workload emulator trên RTX 4080 Super/WSL2, theo
+[runbook chi tiết](https://buicongnguyen.github.io/cuda-vllm-optimize/reproduce-rtx4080.html)
+và cài client dependency bằng `uv pip install -e ".[rtx4080]"`.
 
 ## Protocol thí nghiệm tối thiểu
 

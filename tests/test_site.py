@@ -50,6 +50,27 @@ class SiteCheckTests(unittest.TestCase):
         ):
             self.assertIn(authority, learning)
 
+    def test_rtx4080_runbook_has_complete_reproduction_flow(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        page = (root / "docs" / "reproduce-rtx4080.html").read_text(encoding="utf-8")
+
+        for section in (
+            "contract",
+            "setup",
+            "install",
+            "baseline",
+            "replay",
+            "matrix",
+            "profile",
+            "implement",
+            "decide",
+            "troubleshoot",
+        ):
+            self.assertIn(f'id="{section}"', page)
+        self.assertIn("scripts/rtx4080_replay.py", page)
+        self.assertIn("scripts/rtx4080_manifest.py", page)
+        self.assertIn("Method reproduction—not H200 score equivalence", page)
+
     def test_reader_documents_use_html_routes(self) -> None:
         root = Path(__file__).resolve().parents[1] / "docs"
         pages = {

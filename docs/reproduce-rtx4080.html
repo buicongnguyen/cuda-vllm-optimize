@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Runbook chi tiết để tái tạo pipeline tối ưu vLLM và LFM2.5 trên RTX 4080 Super 16GB bằng WSL2.">
+    <meta name="theme-color" content="#071014">
+    <title>LFM RaceBench — Reproduce on RTX 4080 Super</title>
+    <link rel="stylesheet" href="assets/site.css">
+    <script src="assets/site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#content">Đi đến nội dung</a>
+    <header class="site-header">
+      <nav class="nav shell" aria-label="Điều hướng chính">
+        <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">RB</span><span>LFM RaceBench</span></a>
+        <button class="nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="main-nav" aria-label="Mở menu">☰</button>
+        <div class="nav-links" id="main-nav" data-nav-links>
+          <a href="problem.html">Problem</a><a href="index.html">Experiment</a><a href="learn.html">Learning</a><a href="reproduce-rtx4080.html" aria-current="page">RTX 4080</a><a href="analysis.html">Documents</a><a href="https://github.com/buicongnguyen/cuda-vllm-optimize">GitHub ↗</a>
+        </div>
+      </nav>
+    </header>
+
+    <main id="content">
+      <section class="article-hero reproduce-hero">
+        <div class="shell hero-grid">
+          <div>
+            <p class="eyebrow">Local reproduction · Windows + WSL2 · Ada SM89</p>
+            <h1>Reproduce trên<br><span>RTX 4080 Super.</span></h1>
+            <p class="lede">Một runbook từ máy trắng đến raw timestamps: chuẩn bị WSL2, pin environment, serve LFM2.5, replay 70 × 6 turns, profile, A/B config và mở đường cho kernel work.</p>
+            <div class="hero-actions">
+              <a class="button primary" href="#setup">Bắt đầu setup →</a>
+              <a class="button" href="https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/scripts/rtx4080_replay.py">Xem replay code ↗</a>
+            </div>
+          </div>
+          <aside class="brief-card" aria-label="Target local">
+            <h2>Local target</h2>
+            <div class="brief-row"><span>GPU</span><strong>RTX 4080 Super</strong></div>
+            <div class="brief-row"><span>Architecture</span><strong>Ada · SM89</strong></div>
+            <div class="brief-row"><span>VRAM</span><strong>16 GB GDDR6X</strong></div>
+            <div class="brief-row"><span>Runtime</span><strong>WSL2 · Linux</strong></div>
+            <div class="brief-row"><span>Model</span><strong>LFM2.5 · 1.17B</strong></div>
+            <span class="status">Method reproduction—not H200 score equivalence</span>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section compact-section">
+        <div class="shell">
+          <div class="repro-flow" aria-label="Các phase reproduction">
+            <a href="#contract"><b>00</b><span>Scope</span></a><i>→</i>
+            <a href="#setup"><b>01</b><span>WSL</span></a><i>→</i>
+            <a href="#install"><b>02</b><span>Install</span></a><i>→</i>
+            <a href="#baseline"><b>03</b><span>Baseline</span></a><i>→</i>
+            <a href="#replay"><b>04</b><span>Replay</span></a><i>→</i>
+            <a href="#matrix"><b>05</b><span>A/B</span></a><i>→</i>
+            <a href="#profile"><b>06</b><span>Profile</span></a><i>→</i>
+            <a href="#implement"><b>07</b><span>Patch</span></a><i>→</i>
+            <a href="#decide"><b>08</b><span>Decide</span></a>
+          </div>
+        </div>
+      </section>
+
+      <section class="section runbook-section">
+        <div class="shell runbook-layout">
+          <aside class="runbook-toc" aria-label="Mục lục runbook">
+            <strong>On this page</strong>
+            <a href="#contract">00 · Reproduction contract</a>
+            <a href="#setup">01 · Windows + WSL2</a>
+            <a href="#install">02 · Pin environment</a>
+            <a href="#baseline">03 · Start baseline</a>
+            <a href="#replay">04 · 70 × 6 replay</a>
+            <a href="#matrix">05 · Experiment matrix</a>
+            <a href="#profile">06 · Nsight evidence</a>
+            <a href="#implement">07 · Implementation path</a>
+            <a href="#decide">08 · Promotion gate</a>
+            <a href="#troubleshoot">Troubleshooting</a>
+          </aside>
+
+          <div class="runbook-content">
+            <section class="run-step panel" id="contract">
+              <span class="run-index">00 / REPRODUCTION CONTRACT</span>
+              <h2>Định nghĩa “reproduce” trước khi cài gì</h2>
+              <p>Máy này đủ sức chạy model 1.17B và tái tạo quy trình engineering. Nó không phải proxy định lượng cho H200 MIG. Kết quả local dùng để loại candidate sai, tìm bug và học bottleneck; candidate thắng local vẫn phải retest trên target.</p>
+              <div class="requirement-table compact-table">
+                <table>
+                  <thead><tr><th>Work item</th><th>RTX 4080S làm được?</th><th>Kết luận được phép</th></tr></thead>
+                  <tbody>
+                    <tr><td>vLLM request lifecycle, 70 × 6 causal turns</td><td><span class="evidence verified">Có</span></td><td>Harness và semantics hoạt động.</td></tr>
+                    <tr><td>TTFT/TPOT A/B trên cùng máy</td><td><span class="evidence verified">Có</span></td><td>Candidate local thắng/thua với noise đã đo.</td></tr>
+                    <tr><td>CUDA Graph, prefix cache, scheduler, FP8</td><td><span class="evidence verified">Có</span></td><td>Feature có chạy và tác động local.</td></tr>
+                    <tr><td>Triton correctness và SM89 tuning</td><td><span class="evidence verified">Có</span></td><td>Kernel đúng và nhanh trên Ada SM89.</td></tr>
+                    <tr><td>H200 MIG TTFT/TPOT hoặc contest ERS</td><td><span class="evidence unknown">Không</span></td><td>Không extrapolate số tuyệt đối.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <aside class="spec-callout"><strong>Missing inputs:</strong> prompt set, output-length distribution, λ, evaluator aggregation và official vLLM image chưa có. Runbook dùng workload emulator có seed; thay chúng ngay khi nhận được evaluator thật.</aside>
+            </section>
+
+            <section class="run-step panel" id="setup">
+              <span class="run-index">01 / WINDOWS HOST → WSL2</span>
+              <h2>Chuẩn bị runtime Linux mà không phá driver</h2>
+              <p>vLLM GPU quickstart yêu cầu Linux. Trên Windows, đường thực dụng là WSL2. Driver nằm ở Windows host và được map vào WSL; không cài Linux NVIDIA display driver bên trong WSL.</p>
+              <p class="run-note"><strong>Host preflight 2026-08-02:</strong> máy hiện tại báo RTX 4080 Super, compute capability 8.9, 16,376 MiB, driver 591.86. Python Windows hiện chưa có vLLM/PyTorch/Triton; vì vậy các bước dưới đây tạo Linux environment mới thay vì sửa Python host.</p>
+              <h3>A. PowerShell chạy với Administrator</h3>
+              <pre><code>wsl --install -d Ubuntu-24.04
+wsl --update
+wsl --set-default-version 2
+wsl --list --verbose
+
+# Reboot nếu Windows yêu cầu, sau đó mở Ubuntu và tạo Linux user.</code></pre>
+              <h3>B. Trong Ubuntu/WSL</h3>
+              <pre><code>nvidia-smi
+uname -a
+cat /etc/os-release
+
+# Expected: RTX 4080 SUPER xuất hiện và WSL2 kernel được nhận diện.
+# Không chạy: sudo apt install nvidia-driver-*</code></pre>
+              <div class="run-check"><b>PASS</b><span><code>nvidia-smi</code> trong WSL thấy RTX 4080 Super, 16GB VRAM và driver version; distro ở WSL version 2.</span></div>
+              <div class="source-strip"><a href="https://learn.microsoft.com/en-us/windows/wsl/install">Microsoft WSL install ↗</a><a href="https://docs.nvidia.com/cuda/archive/13.2.0/wsl-user-guide/index.html">NVIDIA CUDA on WSL ↗</a><a href="https://www.nvidia.com/en-us/geforce/graphics-cards/40-series/rtx-4080-family/">RTX 4080 Super specs ↗</a></div>
+            </section>
+
+            <section class="run-step panel" id="install">
+              <span class="run-index">02 / REPRODUCIBLE ENVIRONMENT</span>
+              <h2>Clone bằng SSH, cài bằng uv, rồi đóng băng version</h2>
+              <p>Đặt repo trong filesystem Linux như <code>~/src</code>, không benchmark từ <code>/mnt/c</code>. Dùng một virtual environment riêng và không gọi nó là baseline cho tới khi đã lưu manifest.</p>
+              <pre><code>sudo apt update
+sudo apt install -y git curl build-essential python3-dev jq
+
+mkdir -p ~/src &amp;&amp; cd ~/src
+git clone git@github.com:buicongnguyen/cuda-vllm-optimize.git
+cd cuda-vllm-optimize
+
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source "$HOME/.local/bin/env"
+uv venv --python 3.12 .venv
+source .venv/bin/activate
+
+uv pip install -e ".[rtx4080]"
+uv pip install vllm --torch-backend=auto</code></pre>
+              <h3>Sanity check và manifest</h3>
+              <pre><code>python - &lt;&lt;'PY'
+import torch, vllm
+print("vLLM", vllm.__version__)
+print("PyTorch", torch.__version__, "CUDA build", torch.version.cuda)
+print("GPU", torch.cuda.get_device_name(0))
+print("capability", torch.cuda.get_device_capability(0))
+free, total = torch.cuda.mem_get_info()
+print("VRAM GiB", free / 2**30, "/", total / 2**30)
+PY
+
+mkdir -p results/rtx4080
+python scripts/rtx4080_manifest.py --output results/rtx4080/manifest.json
+uv pip freeze &gt; results/rtx4080/requirements.lock.txt
+vllm serve --help &gt; results/rtx4080/vllm-serve-help.txt</code></pre>
+              <p class="run-note"><strong>Why save <code>--help</code>?</strong> Option names/defaults change theo vLLM version. Runbook không âm thầm coi docs “latest” là contract của artifact đã pin.</p>
+              <div class="run-check"><b>PASS</b><span>Compute capability là <code>(8, 9)</code>; manifest, frozen packages và CLI help cùng nằm trong result directory.</span></div>
+              <div class="source-strip"><a href="https://docs.vllm.ai/en/latest/getting_started/quickstart/">vLLM Quickstart ↗</a><a href="https://docs.vllm.ai/en/latest/getting_started/installation/gpu/">vLLM GPU install ↗</a></div>
+            </section>
+
+            <section class="run-step panel" id="baseline">
+              <span class="run-index">03 / FUNCTIONAL BASELINE</span>
+              <h2>Khởi động cấu hình vừa 16GB trước khi tối ưu</h2>
+              <p>1.17B BF16 weights chỉ là một phần VRAM; CUDA Graph, KV/convolution state, temporary buffers và allocator cũng chiếm chỗ. Bắt đầu ở utilization 0.88, context 8192, rồi tăng sau khi đo headroom.</p>
+              <h3>Terminal A — server</h3>
+              <pre><code>source ~/src/cuda-vllm-optimize/.venv/bin/activate
+cd ~/src/cuda-vllm-optimize
+export MODEL=LiquidAI/LFM2.5-1.2B-Instruct
+
+vllm serve "$MODEL" \
+  --host 127.0.0.1 --port 8000 \
+  --generation-config vllm \
+  --max-model-len 8192 \
+  --gpu-memory-utilization 0.88 \
+  --max-num-seqs 128 \
+  --max-num-batched-tokens 4096 \
+  2&gt;&amp;1 | tee results/rtx4080/server-baseline.log</code></pre>
+              <h3>Terminal B — health và deterministic smoke request</h3>
+              <pre><code>curl -s http://127.0.0.1:8000/v1/models | jq
+
+curl -N http://127.0.0.1:8000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"LiquidAI/LFM2.5-1.2B-Instruct","messages":[{"role":"user","content":"Explain KV cache in one sentence."}],"temperature":0,"max_tokens":32,"stream":true}'</code></pre>
+              <h3>Warm-up trước measurement</h3>
+              <pre><code>vllm bench serve \
+  --backend openai-chat --model "$MODEL" \
+  --dataset-name random --random-input-len 256 --random-output-len 32 \
+  --num-prompts 20 --request-rate 2 --max-concurrency 8</code></pre>
+              <p class="run-note">Nếu OOM lúc graph capture: thử <code>--gpu-memory-utilization 0.82</code> hoặc tạm <code>--enforce-eager</code> để chẩn đoán. Đừng ghi điểm eager và graph vào cùng một baseline.</p>
+              <div class="run-check"><b>PASS</b><span>20 warm-up requests không lỗi, server không restart/OOM và deterministic smoke request trả nội dung hợp lệ.</span></div>
+            </section>
+
+            <section class="run-step panel" id="replay">
+              <span class="run-index">04 / WORKLOAD + RAW TIMESTAMPS</span>
+              <h2>Replay 70 conversations × 6 causal turns</h2>
+              <p><code>scripts/rtx4080_replay.py</code> tạo 420 Poisson arrivals bằng exponential inter-arrival, nhưng turn N vẫn chờ turn N−1 của cùng conversation. Client parse SSE, lưu submit/first/last timestamp, server usage token count, TTFT, TPOT, status và error thành JSONL.</p>
+              <pre><code>python scripts/rtx4080_replay.py \
+  --model LiquidAI/LFM2.5-1.2B-Instruct \
+  --conversations 70 --turns 6 \
+  --rate 7 --seed 2025 --max-tokens 64 \
+  --aggregate mean \
+  --output results/rtx4080/R0-baseline.jsonl</code></pre>
+              <h3>Implementation flow trong replay client</h3>
+              <pre><code>arrival = poisson_arrivals(conversations=70, turns=6, request_rate=7, seed=2025)
+
+if turn &gt; 1:
+    await previous_turn_completed.wait()       # preserve conversation causality
+await sleep_until(run_start + scheduled_s)    # preserve planned arrival when possible
+
+submitted = perf_counter()
+async for sse_line in streamed_response:
+    if content_delta:
+        first_token = first_token or perf_counter()
+        last_token = perf_counter()
+
+ttft_ms = (first_token - submitted) * 1000
+tpot_ms = (last_token - first_token) * 1000 / (completion_tokens - 1)</code></pre>
+              <p class="run-note"><strong>Measurement boundary:</strong> đây là client-observed latency, gồm local HTTP/frontend. <code>completion_tokens</code> lấy từ server usage; nếu server không gửi usage, script ghi rõ <code>content_event_fallback</code>. SSE chunk không được giả định luôn bằng một token.</p>
+              <div class="implementation-links"><a href="https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/scripts/rtx4080_replay.py"><b>Full replay client</b><span>async scheduling, SSE parsing, causal history, JSONL evidence ↗</span></a><a href="https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/scripts/rtx4080_manifest.py"><b>Hardware manifest</b><span>driver, CUDA, packages, SM count, clocks and VRAM ↗</span></a></div>
+              <div class="run-check"><b>PASS</b><span>Summary báo <code>requested=420</code>, <code>successful=420</code>, <code>failed=0</code>, <code>metric_eligible=420</code>; mọi request dùng <code>server_usage</code> nếu server hỗ trợ.</span></div>
+              <div class="source-strip"><a href="https://docs.vllm.ai/en/latest/cli/bench/serve/">vLLM benchmark semantics ↗</a><a href="https://numpy.org/doc/stable/reference/random/generated/numpy.random.exponential.html">Poisson inter-arrivals ↗</a></div>
+            </section>
+
+            <section class="run-step panel" id="matrix">
+              <span class="run-index">05 / ONE CHANGE PER RUN</span>
+              <h2>Ma trận A/B/A phù hợp RTX 4080 Super</h2>
+              <p>Mỗi row khởi động server mới, warm-up giống nhau, chạy cùng seed/prompt/max tokens và lưu result riêng. R0 xuất hiện lại sau candidate để phát hiện thermal/clock drift.</p>
+              <div class="requirement-table compact-table">
+                <table>
+                  <thead><tr><th>Run</th><th>One change</th><th>Server delta</th><th>Kill criterion</th></tr></thead>
+                  <tbody>
+                    <tr><td>R0</td><td>BF16/default baseline</td><td>Không thêm flag</td><td>420/420 thành công</td></tr>
+                    <tr><td>R1</td><td>Prefix cache</td><td><code>--enable-prefix-caching --mamba-cache-mode align</code></td><td>Crash, quality mismatch hoặc ERS giảm ngoài noise</td></tr>
+                    <tr><td>R2</td><td>CUDA Graph off</td><td><code>--enforce-eager</code></td><td>Dùng để định lượng graph benefit, không promote nếu chậm</td></tr>
+                    <tr><td>R3</td><td>Weight FP8</td><td><code>--quantization fp8</code></td><td>OOM load, quality fail hoặc TPOT regression</td></tr>
+                    <tr><td>R4</td><td>KV FP8</td><td><code>--kv-cache-dtype fp8</code></td><td>Quality fail hoặc capacity gain không dùng được</td></tr>
+                    <tr><td>R5</td><td>Batch token budget</td><td><code>--max-num-batched-tokens 8192</code></td><td>TTFT/tail regression lớn hơn TPOT gain</td></tr>
+                    <tr><td>R0′</td><td>Baseline return</td><td>Giống R0</td><td>Drift vượt repeat noise → invalidate block</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <h3>Template chạy candidate</h3>
+              <pre><code># Terminal A: đổi đúng SERVER_DELTA, còn lại giữ nguyên
+SERVER_DELTA="--enable-prefix-caching --mamba-cache-mode align"
+vllm serve "$MODEL" ... $SERVER_DELTA 2&gt;&amp;1 | tee results/rtx4080/R1-server.log
+
+# Terminal B: cùng workload, chỉ đổi output label
+python scripts/rtx4080_replay.py ... \
+  --output results/rtx4080/R1-prefix-cache.jsonl</code></pre>
+              <p class="run-note">Với vLLM hiện tại, LFM2 là <code>HasInnerState</code>/<code>IsHybrid</code>; source ghi prefix cache mode <code>all</code> không được hỗ trợ và yêu cầu <code>align</code>. Luôn xác nhận lại trong source của version đã pin.</p>
+              <div class="source-strip"><a href="https://docs.vllm.ai/en/stable/api/vllm/model_executor/models/lfm2.html">vLLM LFM2 source/API ↗</a><a href="https://docs.vllm.ai/en/latest/features/quantization/quantized_kvcache/">FP8 KV cache ↗</a><a href="https://docs.vllm.ai/en/latest/design/cuda_graphs/">CUDA Graph modes ↗</a></div>
+            </section>
+
+            <section class="run-step panel" id="profile">
+              <span class="run-index">06 / SYSTEMS → COMPUTE</span>
+              <h2>Profile critical path, không profile cả thế giới</h2>
+              <h3>A. Nsight Systems: server timeline</h3>
+              <pre><code># Terminal A — profile server process
+nsys profile --trace=cuda,nvtx,osrt --sample=none \
+  --output=results/rtx4080/R0-systems --force-overwrite=true \
+  vllm serve "$MODEL" --max-model-len 8192 \
+    --gpu-memory-utilization 0.88 --max-num-seqs 128 \
+    --max-num-batched-tokens 4096
+
+# Terminal B — warm-up rồi chạy replay nhỏ đại diện
+python scripts/rtx4080_replay.py --conversations 8 --turns 2 \
+  --rate 2 --max-tokens 32 --output results/rtx4080/profile-replay.jsonl
+
+# Dừng server sau capture, rồi đọc summary
+nsys stats results/rtx4080/R0-systems.nsys-rep</code></pre>
+              <h3>B. Nsight Compute: chỉ kernel đã chọn</h3>
+              <pre><code># Lấy exact kernel name từ Systems trước.
+ncu --set roofline --target-processes all \
+  --kernel-name regex:YOUR_CONFIRMED_KERNEL \
+  --launch-count 5 \
+  --output results/rtx4080/selected-kernel \
+  python your_kernel_microbench.py</code></pre>
+              <div class="evidence-chain">
+                <div><b>Systems evidence</b><span>host gap, sync, launch count, kernel duration, prefill/decode bucket</span></div><i>→</i><div><b>Hypothesis</b><span>launch-bound, bandwidth-bound hoặc occupancy-limited</span></div><i>→</i><div><b>Compute counter</b><span>achieved bandwidth, SOL throughput, registers, occupancy</span></div>
+              </div>
+              <p class="run-note">Nsight Compute trong WSL2 cần supported Windows build/driver và GPU performance counters được enable trên Windows host. Profiler overhead không được trộn vào score run.</p>
+              <div class="source-strip"><a href="https://docs.nvidia.com/nsight-systems/UserGuide/">Nsight Systems guide ↗</a><a href="https://docs.nvidia.com/nsight-compute/NsightComputeCli/index.html">Nsight Compute CLI ↗</a><a href="https://docs.nvidia.com/nsight-compute/ReleaseNotes/topics/system-requirements.html">Nsight WSL requirements ↗</a></div>
+            </section>
+
+            <section class="run-step panel" id="implement">
+              <span class="run-index">07 / CODE CHANGE PATH</span>
+              <h2>Từ Python patch đến Triton kernel mà không mất baseline</h2>
+              <h3>Level 1 — Python-only vLLM edit</h3>
+              <pre><code>cd ~/src
+git clone git@github.com:vllm-project/vllm.git vllm-dev
+cd vllm-dev
+git checkout YOUR_PINNED_COMMIT
+git switch -c rtx4080/shortconv-measurement
+
+# Reuse precompiled native libraries; chỉ hợp lệ cho Python changes.
+VLLM_USE_PRECOMPILED=1 uv pip install --editable . --torch-backend=auto
+python -c "import vllm; print(vllm.__file__)"</code></pre>
+              <h3>Level 2 — kernel contract trước implementation</h3>
+              <pre><code>def optimized_shortconv(x, state, *, activation, dtype):
+    if not supported_shape(x, state) or dtype not in (torch.float16, torch.bfloat16):
+        return reference_shortconv(x, state, activation=activation)
+    return triton_shortconv(x, state, activation=activation)
+
+# Required matrix before benchmark:
+# batch: 1, 2, 8, 32, 70, 128
+# dtype: FP16, BF16; odd/tail shapes; contiguous/non-contiguous
+# values: zeros, random, large/small magnitude
+# state: compare output AND updated recurrent state
+torch.testing.assert_close(actual_output, reference_output, rtol=..., atol=...)
+torch.testing.assert_close(actual_state, reference_state, rtol=..., atol=...)</code></pre>
+              <h3>Level 3 — benchmark ladder</h3>
+              <ol class="run-list">
+                <li>Correctness matrix trên SM89.</li>
+                <li>Microbenchmark sau JIT warm-up, report p50 và distribution.</li>
+                <li>Nsight counters: register pressure, occupancy và HBM/GDDR traffic.</li>
+                <li>End-to-end R0/K/R0′ bằng 420-request replay.</li>
+                <li>Retest trên SM90 H200 MIG; autotune config local không được hardcode làm universal default.</li>
+              </ol>
+              <p class="run-note"><strong>Important:</strong> <code>VLLM_USE_PRECOMPILED=1</code> không hợp lệ khi sửa C++/CUDA native code. Với Triton/Python kernel có thể dùng editable path; nếu thay native ABI phải full build đúng hướng dẫn của pinned vLLM.</p>
+              <div class="source-strip"><a href="https://docs.vllm.ai/en/latest/getting_started/installation/gpu/">vLLM editable/precompiled workflow ↗</a><a href="https://triton-lang.org/main/getting-started/tutorials/01-vector-add.html">Triton correctness + benchmark ↗</a><a href="https://docs.pytorch.org/tutorials/recipes/recipes/benchmark.html">PyTorch benchmark recipe ↗</a></div>
+            </section>
+
+            <section class="run-step panel" id="decide">
+              <span class="run-index">08 / PROMOTION GATE</span>
+              <h2>Khi nào một candidate được đi tiếp?</h2>
+              <div class="promotion-grid">
+                <div><span>1</span><b>Correctness</b><p>Greedy output/state match trong tolerance; 420/420 requests hợp lệ.</p></div>
+                <div><span>2</span><b>Repeatability</b><p>Gain lớn hơn noise qua ít nhất A/B/A; clocks và thermal state được ghi.</p></div>
+                <div><span>3</span><b>Causal evidence</b><p>Timeline/counter giải thích được gain; không chỉ leaderboard movement.</p></div>
+                <div><span>4</span><b>Target retest</b><p>SM90/MIG chạy lại correctness, autotune và end-to-end before contest submit.</p></div>
+              </div>
+              <pre><code>results/rtx4080/
+├── manifest.json
+├── requirements.lock.txt
+├── vllm-serve-help.txt
+├── R0-server.log
+├── R0-baseline.jsonl
+├── R1-server.log
+├── R1-prefix-cache.jsonl
+├── R0-prime.jsonl
+├── R0-systems.nsys-rep
+└── selected-kernel.ncu-rep</code></pre>
+              <div class="run-check"><b>DONE</b><span>Candidate local được ghi là <em>SM89-validated</em>, không phải <em>H200-proven</em>. Chỉ target run mới nâng evidence state.</span></div>
+            </section>
+
+            <section class="run-step panel" id="troubleshoot">
+              <span class="run-index">TROUBLESHOOTING</span>
+              <h2>Các lỗi có khả năng gặp nhất</h2>
+              <div class="trouble-grid">
+                <details><summary><b><code>torch.cuda.is_available() == False</code></b></summary><p>Kiểm tra Windows NVIDIA driver, <code>wsl --update</code>, distro là WSL2 và <code>nvidia-smi</code> trong WSL. Không cài Linux display driver để “sửa”.</p></details>
+                <details><summary><b>OOM khi vLLM capture graph</b></summary><p>Hạ utilization/context/capture sizes; thử eager chỉ để phân loại lỗi. Ghi rõ cấu hình nào dùng graph khi so điểm.</p></details>
+                <details><summary><b>Prefix cache crash trên LFM2</b></summary><p>Xác nhận pinned source hỗ trợ hybrid cache và dùng <code>--mamba-cache-mode align</code>; nếu option không tồn tại, không copy flag từ docs version khác.</p></details>
+                <details><summary><b>Replay có TPOT = 0 hoặc thiếu token count</b></summary><p>Kiểm tra server trả streaming usage. Nếu một SSE event chứa nhiều tokens, fallback event count không đủ để khẳng định evaluator TPOT.</p></details>
+                <details><summary><b><code>ncu</code> không đọc được counters</b></summary><p>Enable NVIDIA GPU Performance Counters ở Windows Control Panel, kiểm tra driver/build requirements và cài Linux x86 Nsight Compute trực tiếp trong WSL2.</p></details>
+                <details><summary><b>Local +1% nhưng target regression</b></summary><p>Expected risk: SM89/SM90, GDDR/HBM, CPU budget, graph shapes và MIG isolation khác nhau. Giữ candidate nhưng retune/remeasure target; không average hai máy.</p></details>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer"><div class="shell footer-grid"><span>RTX 4080 Super runbook · evidence before optimization</span><span><a href="learn.html">Learning path</a> · <a href="index.html">Experiment flow</a></span></div></footer>
+  </body>
+</html>

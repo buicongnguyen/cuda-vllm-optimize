@@ -936,10 +936,11 @@ input[type="number"]:focus {
 }
 
 .method-stage {
-  grid-template-columns: minmax(0, 0.8fr) minmax(110px, 1.2fr);
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
 }
 
 .method-stage small {
+  grid-column: 1 / -1;
   color: var(--muted);
   font-size: 0.68rem;
   line-height: 1.4;
@@ -1223,6 +1224,199 @@ input[type="number"]:focus {
 
 .lab-table th {
   color: var(--cyan);
+}
+
+.formula-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.formula-card {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(5, 12, 15, 0.62);
+}
+
+.formula-card > span,
+.ers-formula > span,
+.worked-head > span {
+  color: var(--amber);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.61rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.formula-card h3 {
+  margin: 0.4rem 0 0.65rem;
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+
+.formula-card > code {
+  display: block;
+  overflow-x: auto;
+  padding: 0.7rem;
+  border-radius: 7px;
+  background: #050c0f;
+  color: var(--cyan);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.76rem;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.formula-card p {
+  margin: 0.65rem 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.worked-example,
+.ers-formula {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(80, 206, 226, 0.25);
+  border-radius: 12px;
+  background: rgba(80, 206, 226, 0.035);
+}
+
+.worked-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.65rem;
+}
+
+.worked-head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.example-results {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.example-results div {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border-right: 1px solid var(--line);
+}
+
+.example-results div:last-child {
+  border-right: 0;
+}
+
+.example-results span {
+  color: var(--subtle);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+}
+
+.example-results strong {
+  color: var(--green);
+  font-size: 0.94rem;
+}
+
+.example-results small {
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.35;
+}
+
+.sublesson-title {
+  margin: 1.3rem 0 0.65rem;
+  color: var(--cyan);
+  font-size: 1rem;
+}
+
+.decision-rule-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.decision-rule {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(7, 16, 20, 0.55);
+}
+
+.decision-rule code {
+  color: var(--subtle);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.67rem;
+}
+
+.decision-rule b {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.75rem;
+}
+
+.decision-rule.good b { color: var(--green); }
+.decision-rule.bad b { color: #ff7b7b; }
+.decision-rule.warn b { color: var(--amber); }
+
+.decision-rule p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.ers-formula h3 {
+  margin: 0.4rem 0 0.6rem;
+  font-size: 1rem;
+}
+
+.ers-formula pre {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #050c0f;
+}
+
+.ers-formula pre code {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  padding: 0.85rem;
+  color: var(--cyan);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.76rem;
+  line-height: 1.65;
+}
+
+.ers-formula p {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.ers-formula .formula-caveat {
+  margin-bottom: 0;
+  padding: 0.7rem;
+  border-left: 2px solid var(--amber);
+  background: rgba(255, 184, 77, 0.07);
+  color: #d8c6a6;
 }
 
 .article-hero {
@@ -2455,8 +2649,20 @@ input[type="number"]:focus {
   .lesson-grid,
   .term-grid,
   .lab-grid,
+  .formula-grid,
+  .example-results,
+  .decision-rule-grid,
   .toc {
     grid-template-columns: 1fr;
+  }
+
+  .example-results div {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .example-results div:last-child {
+    border-bottom: 0;
   }
 
   .runbook-toc,

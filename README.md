@@ -47,7 +47,7 @@ docs/                   GitHub Pages site + analysis, decision flow, score strat
 ```
 
 Website có request data-flow map, experiment decision loop, ERS contribution
-chart tương tác và prerequisite graph cho 10 learning modules. Các biểu đồ chỉ
+chart tương tác và prerequisite graph cho 11 learning modules. Các biểu đồ chỉ
 thể hiện quan hệ đã kiểm chứng hoặc số được tính trực tiếp từ input; chúng không
 biến roofline estimate thành benchmark measurement.
 

@@ -30,7 +30,7 @@ class SiteCheckTests(unittest.TestCase):
         self.assertIn('class="decision-map reveal"', experiment)
         self.assertIn("data-ttft-contribution", experiment)
         self.assertIn('class="knowledge-map reveal"', learning)
-        for module in range(10):
+        for module in range(11):
             self.assertIn(f'href="#m{module}"', learning)
 
     def test_learning_modules_have_runnable_evidence_labs(self) -> None:
@@ -38,7 +38,7 @@ class SiteCheckTests(unittest.TestCase):
         learning = (root / "docs" / "learn.html").read_text(encoding="utf-8")
 
         self.assertIn('class="practice-loop"', learning)
-        for module in range(10):
+        for module in range(11):
             self.assertIn(f"CODE LAB {module:02d}", learning)
         for authority in (
             "docs.vllm.ai",
@@ -49,6 +49,15 @@ class SiteCheckTests(unittest.TestCase):
             "huggingface.co/LiquidAI",
         ):
             self.assertIn(authority, learning)
+        for statistical_concept in (
+            "Paired request R0/B",
+            "A/B/A · R0/B/R0′",
+            "Bootstrap 95% CI",
+            "CI.high &lt; 0",
+            "ΔERS",
+            "Không có R0′",
+        ):
+            self.assertIn(statistical_concept, learning)
 
     def test_rtx4080_runbook_has_complete_reproduction_flow(self) -> None:
         root = Path(__file__).resolve().parents[1]

@@ -3,11 +3,11 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Learning path có thứ tự để hiểu LLM inference, GPU, CUDA Graph, Nsight, vLLM, quantization và Triton.">
+    <meta name="description" content="Learning path có thứ tự để hiểu LLM inference, GPU, CUDA Graph, Nsight, vLLM, Triton và thống kê A/B/A.">
     <meta name="theme-color" content="#071014">
     <title>LFM RaceBench — Learning path</title>
     <link rel="stylesheet" href="assets/site.css">
-    <script src="assets/site.js" defer></script>
+    <script src="assets/site.js?v=stats-1" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#content">Đi đến nội dung</a>
@@ -32,14 +32,14 @@
     <main id="content">
       <section class="hero learning-hero">
         <div class="shell">
-          <p class="eyebrow">Prerequisite graph · 10 modules</p>
+          <p class="eyebrow">Prerequisite graph · 11 modules</p>
           <h1>Từ một request đến một <span>GPU timeline.</span></h1>
           <p class="lede">Đọc theo thứ tự này để mỗi thuật ngữ mới dựa trên một mental model đã có. Mục tiêu không phải nhớ flag—mà là giải thích được một millisecond đã đi đâu.</p>
           <div class="path-legend" aria-label="Các giai đoạn học">
             <span>Foundation · 0–2</span>
             <span>Execution · 3–5</span>
             <span>Optimization · 6–8</span>
-            <span>Method · 9</span>
+            <span>Method · 9–10</span>
           </div>
           <div class="practice-loop" aria-label="Vòng lặp thực hành">
             <b>READ</b><span>→</span><b>RUN</b><span>→</span><b>OBSERVE</b><span>→</span><b>SAVE EVIDENCE</b><span>→</span><b>PASS GATE</b>
@@ -87,7 +87,9 @@
             <span class="stage-connector" aria-hidden="true">↓</span>
             <div class="knowledge-stage method-stage">
               <span class="stage-label">METHOD</span>
-              <a class="knowledge-node final-node" href="#m9"><b>09</b><span>Experiment method</span></a>
+              <a class="knowledge-node" href="#m9"><b>09</b><span>Experiment method</span></a>
+              <span class="knowledge-arrow" aria-hidden="true">→</span>
+              <a class="knowledge-node final-node" href="#m10"><b>10</b><span>Statistics</span></a>
               <small>Integrate metrics + profiling + serving + hardware fidelity</small>
             </div>
           </nav>
@@ -108,6 +110,7 @@
             <a href="#m7">07 · Precision</a>
             <a href="#m8">08 · Triton</a>
             <a href="#m9">09 · Experiment method</a>
+            <a href="#m10">10 · Statistics &amp; decisions</a>
             <a href="#glossary">Glossary</a>
           </aside>
 
@@ -543,6 +546,131 @@ racebench validate-ledger experiments/ledger.csv
               </div>
             </article>
 
+            <article class="lesson reveal" id="m10">
+              <span class="lesson-number">10</span>
+              <div>
+                <span class="time">2 HOURS · PERFORMANCE STATISTICS</span>
+                <h2>Paired comparison, uncertainty và quyết định</h2>
+                <p>Một candidate không “nhanh hơn” chỉ vì mean thấp hơn trong một run. Ta phải giữ cùng request, định nghĩa dấu của delta, mô tả distribution, ước lượng uncertainty và kiểm tra drift theo thời gian trước khi promote.</p>
+
+                <div class="term-grid">
+                  <div class="term-card"><h3>Paired request R0/B</h3><p>Cùng <code>request_id</code>, prompt, turn, seed và output policy xuất hiện ở baseline R0 và candidate B. So sánh trong từng pair để giảm nhiễu do request khó/dễ khác nhau.</p></div>
+                  <div class="term-card"><h3>A/B/A · R0/B/R0′</h3><p>Chạy baseline trước và sau candidate. R0′ đo temporal drift từ clocks, nhiệt, cache, background load hoặc environment—not candidate.</p></div>
+                  <div class="term-card"><h3>Mean</h3><p>Trung bình cộng của mọi observation. Dùng toàn bộ dữ liệu nhưng nhạy với outlier và long tail.</p></div>
+                  <div class="term-card"><h3>Median · p50</h3><p>Giá trị giữa sau khi sort; một nửa request thấp hơn và một nửa cao hơn. Robust hơn mean nhưng có thể che tail.</p></div>
+                  <div class="term-card"><h3>p95 / p99</h3><p>Ngưỡng mà 95%/99% observations không vượt quá. p99 cao cho thấy 1% tail requests rất chậm; không phải “99% confidence”.</p></div>
+                  <div class="term-card"><h3>Bootstrap 95% CI</h3><p>Resample paired deltas có replacement, tính statistic nhiều lần rồi lấy interval. Nó mô tả uncertainty của estimator, không phải quality/correctness.</p></div>
+                </div>
+
+                <div class="formula-grid" aria-label="Các công thức thống kê">
+                  <section class="formula-card">
+                    <span>01 · PAIRED DELTA</span>
+                    <h3>Candidate − baseline</h3>
+                    <code>Δᵢ = Lᵢ(B) − Lᵢ(R0)</code>
+                    <p>Với latency: <strong>Δᵢ &lt; 0 là nhanh hơn</strong>. Pair theo request ID; không lấy hai list khác workload rồi trừ mean.</p>
+                  </section>
+                  <section class="formula-card">
+                    <span>02 · MEAN</span>
+                    <h3>Average effect</h3>
+                    <code>x̄ = (1/n) Σᵢ xᵢ</code>
+                    <p>Trong paired test, statistic chính là <code>mean(Δ)</code>, không phải phần trăm của hai mean nếu mục tiêu là millisecond.</p>
+                  </section>
+                  <section class="formula-card">
+                    <span>03 · MEDIAN</span>
+                    <h3>Middle observation</h3>
+                    <code>odd n: x[(n−1)/2]<br>even n: (x[n/2−1]+x[n/2])/2</code>
+                    <p>Với n chẵn, lấy mean của hai phần tử giữa. Median paired delta trả lời “request điển hình thay đổi bao nhiêu”.</p>
+                  </section>
+                  <section class="formula-card">
+                    <span>04 · LINEAR PERCENTILE</span>
+                    <h3>p95 / p99 trong repo</h3>
+                    <code>h=(n−1)q; j=⌊h⌋; g=h−j<br>Q(q)=(1−g)xⱼ+gxⱼ₊₁</code>
+                    <p>Repo dùng linear/type-7 interpolation. Phải ghi method vì software khác có thể cho percentile khác ở sample nhỏ.</p>
+                  </section>
+                  <section class="formula-card wide-formula">
+                    <span>05 · A/B/A DRIFT</span>
+                    <h3>Candidate effect và baseline return</h3>
+                    <code>C = metric(B) − metric(R0)<br>D = metric(R0′) − metric(R0)</code>
+                    <p>Nếu <code>|C|</code> không lớn hơn drift/noise của baseline, attribution cho candidate còn yếu. R0′ không “sửa” drift; nó chỉ làm drift quan sát được.</p>
+                  </section>
+                  <section class="formula-card wide-formula">
+                    <span>06 · PERCENTILE BOOTSTRAP</span>
+                    <h3>95% confidence interval của mean paired delta</h3>
+                    <code>Δ*ᵦ = sample_with_replacement(Δ, n)<br>mᵦ = mean(Δ*ᵦ)<br>CI₉₅ = [Q₂.₅%(m), Q₉₇.₅%(m)]</code>
+                    <p><code>rtx4080_compare.py</code> dùng 2,000 resamples, seed cố định và percentile CI. SciPy mặc định dùng BCa; vì vậy luôn báo method, seed và số resamples. 95% CI không có nghĩa “95% xác suất true effect nằm trong interval này”; 95% là long-run coverage của procedure.</p>
+                  </section>
+                </div>
+
+                <section class="worked-example" aria-labelledby="paired-example-title">
+                  <div class="worked-head"><span>WORKED EXAMPLE</span><h3 id="paired-example-title">Năm paired TPOT observations</h3></div>
+                  <div class="requirement-table compact-table">
+                    <table>
+                      <thead><tr><th>Request</th><th>R0 TPOT</th><th>B TPOT</th><th>Δ = B−R0</th></tr></thead>
+                      <tbody>
+                        <tr><td>r1</td><td>4.1 ms</td><td>3.7 ms</td><td>−0.4 ms</td></tr>
+                        <tr><td>r2</td><td>4.0 ms</td><td>3.8 ms</td><td>−0.2 ms</td></tr>
+                        <tr><td>r3</td><td>4.3 ms</td><td>3.9 ms</td><td>−0.4 ms</td></tr>
+                        <tr><td>r4</td><td>3.9 ms</td><td>3.8 ms</td><td>−0.1 ms</td></tr>
+                        <tr><td>r5</td><td>4.2 ms</td><td>3.9 ms</td><td>−0.3 ms</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="example-results">
+                    <div><span>MEAN Δ</span><strong>−0.28 ms</strong><small>average request faster</small></div>
+                    <div><span>MEDIAN Δ</span><strong>−0.30 ms</strong><small>typical paired change</small></div>
+                    <div><span>BOOTSTRAP CI</span><strong>[−0.38, −0.18]</strong><small>illustrative, seed 2025 / 2,000</small></div>
+                    <div><span>CLASS</span><strong>faster</strong><small>upper bound &lt; 0</small></div>
+                  </div>
+                </section>
+
+                <h3 class="sublesson-title">Rule phân loại faster / slower / uncertain</h3>
+                <div class="decision-rule-grid">
+                  <div class="decision-rule good"><code>CI.high &lt; 0</code><b>FASTER</b><p>Mean paired latency delta được ước lượng âm trong toàn 95% interval.</p></div>
+                  <div class="decision-rule bad"><code>CI.low &gt; 0</code><b>SLOWER</b><p>Mean paired latency delta được ước lượng dương trong toàn interval.</p></div>
+                  <div class="decision-rule warn"><code>CI.low ≤ 0 ≤ CI.high</code><b>UNCERTAIN</b><p>Data còn tương thích với cả gain, zero effect và regression. Repeat hoặc tăng sample.</p></div>
+                </div>
+                <p class="lab-warning"><strong>Phân loại theo từng metric:</strong> TTFT faster nhưng TPOT slower là trade-off, không phải overall faster. Xem raw p95/p99 của R0 và B, paired-delta distribution, ERS delta và correctness. <code>p95(B)−p95(R0)</code> cũng không đồng nhất với <code>p95(Bᵢ−R0ᵢ)</code>.</p>
+                <p class="lab-warning"><strong>Không có R0′:</strong> paired R0/B giảm variation do request, nhưng không loại được temporal drift vì hai runs diễn ra ở hai thời điểm. Kết quả chỉ là provisional. Thêm R0′, kiểm tra <code>D=R0′−R0</code>, clocks, nhiệt và background load trước khi gọi effect là causal.</p>
+
+                <section class="ers-formula" aria-labelledby="ers-delta-title">
+                  <span>ERS DELTA</span>
+                  <h3 id="ers-delta-title">Đổi latency thành score—sau khi giữ cùng aggregation</h3>
+                  <pre><code>S(T,F) = 100 × [0.5 × ((400−T)/390)² + 0.5 × ((10−F)/9)²]
+ΔERS   = S(T_B, F_B) − S(T_R0, F_R0)
+
+∂S/∂T = −100 × (400−T) / 390²
+∂S/∂F = −100 × (10−F) / 9²</code></pre>
+                  <p>T là aggregate TTFT, F là aggregate TPOT. <code>ΔERS &gt; 0</code> tốt hơn. Ví dụ R0 = 47/4 ms cho 63.1851; B = 45/3.5 ms cho 67.5086; <strong>ΔERS = +4.3235</strong>.</p>
+                  <p class="formula-caveat">Đây là công thức được trích trong bài, chưa phải evaluator contract đã xác minh. Clipping, aggregation và quality rule có thể thay đổi kết quả.</p>
+                </section>
+
+                <div class="lesson-gate"><strong>Gate:</strong> Từ raw paired requests, tự tính Δ, mean/median/p95/p99, bootstrap interval, drift R0′ và giải thích decision mà không dựa riêng vào ERS.</div>
+                <details class="hands-on">
+                  <summary><span>CODE LAB 10</span> So sánh R0/B/R0′ và đọc report</summary>
+                  <div class="lab-body">
+                    <pre><code>python scripts/rtx4080_compare.py \
+  results/rtx4080/R0-baseline.jsonl \
+  results/rtx4080/R1-candidate.jsonl \
+  --baseline-return results/rtx4080/R0-prime.jsonl \
+  --bootstrap-samples 2000 --seed 2025 \
+  --output results/rtx4080/R1-comparison.json
+
+# Sign convention inside the implementation:
+# delta = candidate - baseline
+# CI.high &lt; 0 → faster
+# CI.low  &gt; 0 → slower
+# otherwise   → uncertain</code></pre>
+                    <div class="lab-grid">
+                      <div><b>Observe</b><span>paired_n, delta mean/median/p95, CI, failures, ERS delta và R0→R0′ drift.</span></div>
+                      <div><b>Save</b><span>ba raw JSONL, comparison JSON, bootstrap seed/method và artifact manifest.</span></div>
+                      <div><b>Pass</b><span>performance signal vượt drift; correctness/stability gates vẫn pass độc lập.</span></div>
+                    </div>
+                    <p class="lab-links"><a href="reproduce-rtx4080.html#matrix">Áp dụng trong RTX 4080 runbook →</a><a href="https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/scripts/rtx4080_compare.py">Full comparison code ↗</a><a href="https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.bootstrap.html">SciPy bootstrap ↗</a><a href="https://numpy.org/doc/stable/reference/generated/numpy.percentile.html">NumPy percentile ↗</a><a href="https://docs.python.org/3/library/statistics.html">Python statistics ↗</a></p>
+                  </div>
+                </details>
+              </div>
+            </article>
+
             <section class="lesson reveal" id="glossary">
               <span class="lesson-number">G</span>
               <div>
@@ -575,6 +703,8 @@ racebench validate-ledger experiments/ledger.csv
                 <li><a href="https://docs.nvidia.com/cuda/cuda-c-programming-guide/">CUDA Programming Guide</a> — execution/memory/graphs.</li>
                 <li><a href="https://triton-lang.org/main/index.html">Triton documentation</a> — language, tutorials và debugging.</li>
                 <li><a href="https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct">LFM2.5 model card/config</a> — architecture ground truth.</li>
+                <li><a href="https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.bootstrap.html">SciPy bootstrap documentation</a> — paired resampling, CI methods và interpretation.</li>
+                <li><a href="https://numpy.org/doc/stable/reference/generated/numpy.percentile.html">NumPy percentile documentation</a> — quantile methods và linear interpolation.</li>
               </ul>
               <div class="hero-actions">
                 <a class="button primary" href="index.html#flow">Áp dụng vào experiment flow →</a>

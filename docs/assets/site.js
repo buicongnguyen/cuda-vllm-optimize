@@ -91,20 +91,31 @@ calculateScore();
 const lessons = document.querySelectorAll(".lesson[id]");
 const tocLinks = [...document.querySelectorAll(".toc a[href^='#']")];
 
-if (lessons.length && tocLinks.length && "IntersectionObserver" in window) {
-  const lessonObserver = new IntersectionObserver(
-    (entries) => {
-      const visible = entries
-        .filter((entry) => entry.isIntersecting)
-        .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-      if (!visible) return;
-      tocLinks.forEach((link) => {
-        link.classList.toggle("active", link.getAttribute("href") === `#${visible.target.id}`);
-      });
-    },
-    { rootMargin: "-20% 0px -65%", threshold: [0.05, 0.3, 0.6] },
-  );
-  lessons.forEach((lesson) => lessonObserver.observe(lesson));
+if (lessons.length && tocLinks.length) {
+  let tocFrame = 0;
+
+  function updateLearningToc() {
+    tocFrame = 0;
+    const readingLine = Math.min(180, window.innerHeight * 0.28);
+    const ordered = [...lessons];
+    const active = ordered.find((lesson) => {
+      const rect = lesson.getBoundingClientRect();
+      return rect.top <= readingLine && rect.bottom > readingLine;
+    }) || ordered.find((lesson) => lesson.getBoundingClientRect().top > readingLine) || ordered.at(-1);
+
+    tocLinks.forEach((link) => {
+      link.classList.toggle("active", link.getAttribute("href") === `#${active.id}`);
+    });
+  }
+
+  function scheduleLearningTocUpdate() {
+    if (!tocFrame) tocFrame = window.requestAnimationFrame(updateLearningToc);
+  }
+
+  window.addEventListener("scroll", scheduleLearningTocUpdate, { passive: true });
+  window.addEventListener("resize", scheduleLearningTocUpdate);
+  window.addEventListener("hashchange", scheduleLearningTocUpdate);
+  scheduleLearningTocUpdate();
 }
 
 const markdownArticle = document.querySelector("[data-doc-source]");

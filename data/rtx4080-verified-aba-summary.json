@@ -1,0 +1,46 @@
+{
+  "captured_at_utc": "2026-08-02",
+  "scope": "Local method reproduction on RTX 4080 Super; not contest evaluator output",
+  "workload": {
+    "conversations": 70,
+    "turns": 6,
+    "requests_per_stage": 420,
+    "request_rate": 7.0,
+    "max_tokens": 64,
+    "seed": 2025
+  },
+  "stages": {
+    "R0": {
+      "successful": 420,
+      "failed": 0,
+      "mean_ttft_ms": 31.57852212146584,
+      "mean_tpot_ms": 4.138036334039564,
+      "ers_from_quoted_formula": 65.83160613687672
+    },
+    "B_prefix_cache": {
+      "successful": 420,
+      "failed": 0,
+      "mean_ttft_ms": 19.729160794806724,
+      "mean_tpot_ms": 3.9429186268984875,
+      "ers_from_quoted_formula": 70.18351843811479,
+      "ers_delta_vs_R0": 4.351912301238073
+    },
+    "R0_prime": {
+      "successful": 420,
+      "failed": 0,
+      "mean_ttft_ms": 17.742612438416387,
+      "mean_tpot_ms": 3.972549779384632,
+      "ers_from_quoted_formula": 70.46044386903343,
+      "ers_delta_vs_R0": 4.628837732156711
+    }
+  },
+  "candidate_bootstrap_95ci": {
+    "paired_mean_ttft_delta_ms": [-21.210793759914633, -4.098408666282229],
+    "paired_mean_tpot_delta_ms": [-0.29841011572279524, -0.10444902768102378]
+  },
+  "decision": {
+    "classification": "inconclusive_due_to_drift",
+    "promote": false,
+    "reason": "R0-prime improved more than the prefix-cache candidate versus initial R0, so warm-up/clock/cache drift confounds the apparent gain."
+  }
+}

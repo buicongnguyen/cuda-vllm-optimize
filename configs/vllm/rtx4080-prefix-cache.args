@@ -1,0 +1,11 @@
+# One-variable candidate: identical to rtx4080-r0.args plus prefix caching.
+LiquidAI/LFM2.5-1.2B-Instruct
+--revision=868df74dd56ff8a0c2ac5dbf281690c2dbebe4c9
+--dtype=auto
+--max-model-len=4096
+--gpu-memory-utilization=0.88
+--tensor-parallel-size=1
+--max-num-seqs=80
+--max-num-batched-tokens=4096
+--seed=2025
+--enable-prefix-caching

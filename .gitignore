@@ -10,4 +10,5 @@ dist/
 build/
 results/*.json
 results/*.csv
+results/rtx4080/
 !results/.gitkeep

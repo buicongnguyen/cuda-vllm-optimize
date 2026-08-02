@@ -138,6 +138,86 @@ def comparison(baseline: RunData, candidate: RunData, seed: int, samples: int) -
     return report
 
 
+def overall_decision(
+    candidate_report: dict[str, Any],
+    drift_report: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Apply a conservative promotion gate to the statistical evidence."""
+
+    warnings: list[str] = []
+    if candidate_report["failures"]["candidate"] > candidate_report["failures"]["baseline"]:
+        return {
+            "classification": "reject_failures",
+            "promote": False,
+            "warnings": ["Candidate has more failed requests than baseline."],
+        }
+
+    directions = {
+        metric: evidence["direction"]
+        for metric, evidence in candidate_report["metrics"].items()
+    }
+    if "slower" in directions.values():
+        return {
+            "classification": "reject_slower",
+            "promote": False,
+            "warnings": ["At least one latency metric has a 95% CI entirely above zero."],
+        }
+    if drift_report is None:
+        return {
+            "classification": "incomplete_without_baseline_return",
+            "promote": False,
+            "warnings": [
+                "No R0-prime baseline-return run was supplied; drift cannot be excluded."
+            ],
+        }
+
+    candidate_ers_delta = float(candidate_report["quoted_ers"]["delta"])
+    drift_ers_delta = float(drift_report["quoted_ers"]["delta"])
+    confounded_metrics: list[str] = []
+    for metric, evidence in candidate_report["metrics"].items():
+        candidate_delta = float(evidence["paired_delta_mean"])
+        drift_evidence = drift_report["metrics"][metric]
+        drift_delta = float(drift_evidence["paired_delta_mean"])
+        if (
+            evidence["direction"] == "faster"
+            and drift_evidence["direction"] == "faster"
+            and abs(drift_delta) >= abs(candidate_delta)
+        ):
+            confounded_metrics.append(metric)
+
+    if drift_ers_delta > 0 and drift_ers_delta >= candidate_ers_delta:
+        warnings.append(
+            "R0-prime ERS improved at least as much as the candidate versus initial R0."
+        )
+    if confounded_metrics:
+        warnings.append(
+            "Baseline-return drift matches or exceeds candidate mean improvement for: "
+            + ", ".join(confounded_metrics)
+            + "."
+        )
+    if warnings:
+        return {
+            "classification": "inconclusive_due_to_drift",
+            "promote": False,
+            "warnings": warnings,
+        }
+
+    if all(direction == "uncertain" for direction in directions.values()):
+        return {
+            "classification": "uncertain",
+            "promote": False,
+            "warnings": ["Both latency confidence intervals cross zero."],
+        }
+
+    return {
+        "classification": "candidate_faster_pending_correctness",
+        "promote": False,
+        "warnings": [
+            "Performance signal passed drift checks; correctness and repeated-block gates remain."
+        ],
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("baseline", type=Path)
@@ -150,21 +230,21 @@ def main() -> int:
 
     baseline = load_run(args.baseline)
     candidate = load_run(args.candidate)
-    report = {
-        "candidate_vs_baseline": comparison(
-            baseline, candidate, args.seed, args.bootstrap_samples
-        )
-    }
+    candidate_report = comparison(baseline, candidate, args.seed, args.bootstrap_samples)
+    report = {"candidate_vs_baseline": candidate_report}
     if args.baseline_return:
         baseline_return = load_run(args.baseline_return)
-        report["baseline_return_drift"] = comparison(
+        drift_report = comparison(
             baseline, baseline_return, args.seed + 100, args.bootstrap_samples
         )
+        report["baseline_return_drift"] = drift_report
+        report["decision"] = overall_decision(candidate_report, drift_report)
         report["decision_note"] = (
             "Promote performance only when candidate improvement is larger than baseline-return "
             "drift, confidence intervals support it, and separate correctness/stability gates pass."
         )
     else:
+        report["decision"] = overall_decision(candidate_report, None)
         report["decision_note"] = (
             "No baseline-return run supplied; performance signal is incomplete and cannot rule out drift."
         )

@@ -94,6 +94,7 @@ class SiteCheckTests(unittest.TestCase):
     def test_rtx4080_runbook_has_complete_reproduction_flow(self) -> None:
         root = Path(__file__).resolve().parents[1]
         page = (root / "docs" / "reproduce-rtx4080.html").read_text(encoding="utf-8")
+        github_runbook = (root / "RTX4080_RUNBOOK.md").read_text(encoding="utf-8")
 
         for section in (
             "contract",
@@ -112,6 +113,11 @@ class SiteCheckTests(unittest.TestCase):
         self.assertIn("scripts/rtx4080_manifest.py", page)
         self.assertIn("scripts/rtx4080_compare.py", page)
         self.assertIn("Method reproduction—not H200 score equivalence", page)
+        self.assertIn("rtx4080_bootstrap.ps1 -Run smoke", page)
+        self.assertIn("VLLM_USE_FLASHINFER_SAMPLER=0", page)
+        for mode in ("smoke", "baseline", "aba"):
+            self.assertIn(f"-Run {mode}", github_runbook)
+        self.assertIn("4 requested, 4 successful, 0 failed", github_runbook)
         for step in range(9):
             self.assertIn(f"LOGIC REVIEW {step:02d}", page)
 

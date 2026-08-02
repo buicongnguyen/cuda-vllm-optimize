@@ -7,6 +7,7 @@ from scripts.rtx4080_compare import (
     bootstrap_mean_ci,
     comparison,
     load_run,
+    overall_decision,
     paired_deltas,
 )
 
@@ -55,6 +56,39 @@ class Rtx4080CompareTests(unittest.TestCase):
             report = comparison(load_run(before_path), load_run(after_path), 7, 200)
             self.assertEqual(report["metrics"]["tpot_ms"]["direction"], "faster")
             self.assertGreater(report["quoted_ers"]["delta"], 0)
+
+    def test_missing_baseline_return_never_promotes(self) -> None:
+        candidate = {
+            "failures": {"baseline": 0, "candidate": 0},
+            "metrics": {
+                "ttft_ms": {"direction": "faster"},
+                "tpot_ms": {"direction": "faster"},
+            },
+            "quoted_ers": {"delta": 5.0},
+        }
+        decision = overall_decision(candidate, None)
+        self.assertEqual(decision["classification"], "incomplete_without_baseline_return")
+        self.assertFalse(decision["promote"])
+
+    def test_baseline_return_larger_than_candidate_is_confounded(self) -> None:
+        candidate = {
+            "failures": {"baseline": 0, "candidate": 0},
+            "metrics": {
+                "ttft_ms": {"direction": "faster", "paired_delta_mean": -10.0},
+                "tpot_ms": {"direction": "faster", "paired_delta_mean": -0.2},
+            },
+            "quoted_ers": {"delta": 4.0},
+        }
+        drift = {
+            "metrics": {
+                "ttft_ms": {"direction": "faster", "paired_delta_mean": -12.0},
+                "tpot_ms": {"direction": "faster", "paired_delta_mean": -0.3},
+            },
+            "quoted_ers": {"delta": 5.0},
+        }
+        decision = overall_decision(candidate, drift)
+        self.assertEqual(decision["classification"], "inconclusive_due_to_drift")
+        self.assertFalse(decision["promote"])
 
 
 if __name__ == "__main__":

@@ -13,6 +13,9 @@ import sys
 from typing import Any
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 def command_output(command: list[str]) -> str | None:
     try:
         completed = subprocess.run(
@@ -32,6 +35,17 @@ def package_version(name: str) -> str | None:
         return metadata.version(name)
     except metadata.PackageNotFoundError:
         return None
+
+
+def source_git_sha() -> str | None:
+    sha = command_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"])
+    if sha:
+        return sha
+    marker = ROOT / ".source-git-sha"
+    if marker.is_file():
+        value = marker.read_text(encoding="utf-8").strip()
+        return value or None
+    return None
 
 
 def torch_manifest() -> dict[str, Any]:
@@ -77,7 +91,7 @@ def build_manifest() -> dict[str, Any]:
             name: package_version(name)
             for name in ("vllm", "torch", "triton", "transformers", "httpx")
         },
-        "git_sha": command_output(["git", "rev-parse", "HEAD"]),
+        "git_sha": source_git_sha(),
         "wsl_kernel": command_output(["uname", "-a"]),
         "nvidia_smi_csv": smi_query,
         "torch": torch_manifest(),

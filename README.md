@@ -4,6 +4,7 @@
 [Experiment flow](https://buicongnguyen.github.io/cuda-vllm-optimize/) ·
 [Learning path](https://buicongnguyen.github.io/cuda-vllm-optimize/learn.html) ·
 [RTX 4080 Super runbook](https://buicongnguyen.github.io/cuda-vllm-optimize/reproduce-rtx4080.html) ·
+[Executable RTX guide](RTX4080_RUNBOOK.md) ·
 [Statistics definitions & sources](docs/STATISTICS_REFERENCES.md)
 
 Một repository **benchmark-first** để phân tích và tối ưu serving
@@ -56,7 +57,26 @@ Repo không giả vờ cung cấp Triton kernels chưa được kiểm tra trên
 chép mã từ fork bên ngoài, và không gọi một config là “winning config” khi chưa
 có raw evaluator output.
 
-## Chạy nhanh
+## RTX 4080 Super: setup và chạy thật
+
+Đường chạy đã được kiểm chứng end-to-end trên chính máy RTX 4080 Super 16 GB,
+Windows + Ubuntu 22.04 WSL2. Từ PowerShell ở repo root:
+
+```powershell
+.\scripts\rtx4080_bootstrap.ps1 -Run smoke
+.\scripts\rtx4080_bootstrap.ps1 -Run baseline
+.\scripts\rtx4080_bootstrap.ps1 -Run aba
+```
+
+Ba lệnh tương ứng kiểm tra cài đặt, chạy workload 70 × 6 và chạy block
+R0/B/R0′ có bootstrap CI + drift guard. Full block đã pass 1,260/1,260
+requests trên máy này; prefix cache chưa được promote vì R0′ cải thiện còn lớn
+hơn candidate. Setup tự pin vLLM 0.25.1, model
+revision, Python 3.12, mirror code vào WSL ext4 và lưu raw evidence. Xem
+[hướng dẫn GitHub đầy đủ](RTX4080_RUNBOOK.md) trước khi diễn giải điểm: đây là
+method reproduction trên SM89, không phải H200 MIG score equivalence.
+
+## Chạy harness không GPU
 
 Yêu cầu Python 3.11+, không có runtime dependency bên ngoài.
 
@@ -73,9 +93,9 @@ racebench workload --conversations 70 --turns 6 --rate 7 --seed 2025
 `--rate 7` chỉ là giá trị mẫu vì bài viết nói arrival Poisson nhưng không cho
 lambda. Phải thay bằng tham số chính thức trước khi dùng kết quả.
 
-Để chạy workload emulator trên RTX 4080 Super/WSL2, theo
+Để hiểu chi tiết workload emulator trên RTX 4080 Super/WSL2, theo
 [runbook chi tiết](https://buicongnguyen.github.io/cuda-vllm-optimize/reproduce-rtx4080.html)
-và cài client dependency bằng `uv pip install -e ".[rtx4080]"`.
+hoặc [runbook trực tiếp trong GitHub](RTX4080_RUNBOOK.md).
 
 ## Protocol thí nghiệm tối thiểu
 
@@ -98,5 +118,7 @@ và cài client dependency bằng `uv pip install -e ".[rtx4080]"`.
 
 ## Trạng thái
 
-Đây là analysis/harness repo đã được publish bằng GitHub Pages. Nó chưa phải fork
-vLLM và chưa được benchmark trên GPU của cuộc thi trong workspace hiện tại.
+Đây là analysis/harness repo đã được publish bằng GitHub Pages. Smoke pipeline
+đã pass trên RTX 4080 Super của workspace hiện tại (smoke 4/4; full A/B/A
+1,260/1,260 streamed requests). Repo vẫn chưa phải fork vLLM và chưa được
+benchmark trên GPU cuộc thi.

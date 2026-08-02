@@ -840,6 +840,22 @@ input[type="number"]:focus {
   font-weight: 700;
 }
 
+.practice-loop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 1rem;
+  color: var(--subtle);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+}
+
+.practice-loop b {
+  color: var(--cyan);
+}
+
 .compact-head {
   margin-bottom: 1.7rem;
 }
@@ -981,6 +997,7 @@ input[type="number"]:focus {
 
 .lesson-list {
   display: grid;
+  min-width: 0;
   gap: 1rem;
 }
 
@@ -990,6 +1007,10 @@ input[type="number"]:focus {
   gap: 1rem;
   padding: clamp(1.1rem, 3vw, 1.7rem);
   scroll-margin-top: 92px;
+}
+
+.lesson > div {
+  min-width: 0;
 }
 
 .lesson h2 {
@@ -1039,6 +1060,169 @@ input[type="number"]:focus {
   background: rgba(123, 216, 143, 0.08);
   color: #b9dec1;
   font-size: 0.82rem;
+}
+
+.hands-on {
+  min-width: 0;
+  margin-top: 0.9rem;
+  overflow: hidden;
+  border: 1px solid rgba(80, 206, 226, 0.24);
+  border-radius: 12px;
+  background: rgba(5, 12, 15, 0.58);
+}
+
+.hands-on summary {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.9rem 1rem;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 750;
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+
+.hands-on summary::-webkit-details-marker {
+  display: none;
+}
+
+.hands-on summary::after {
+  content: "+";
+  margin-left: auto;
+  color: var(--cyan);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 1.1rem;
+}
+
+.hands-on[open] summary::after {
+  content: "−";
+}
+
+.hands-on summary span {
+  flex: none;
+  color: var(--amber);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.64rem;
+  letter-spacing: 0.08em;
+}
+
+.hands-on[open] summary {
+  border-bottom: 1px solid var(--line);
+  background: rgba(80, 206, 226, 0.05);
+}
+
+.lab-body {
+  padding: 1rem;
+}
+
+.lab-goal {
+  margin-top: 0;
+}
+
+.lab-body pre {
+  max-width: 100%;
+  margin: 0.85rem 0;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #050c0f;
+}
+
+.lab-body pre code {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  padding: 1rem;
+  color: #c7d3da;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.76rem;
+  line-height: 1.65;
+}
+
+.lab-body code:not(pre code) {
+  padding: 0.12rem 0.3rem;
+  border-radius: 4px;
+  background: rgba(80, 206, 226, 0.09);
+  color: var(--cyan);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.86em;
+}
+
+.lab-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+}
+
+.lab-grid div {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+
+.lab-grid b {
+  color: var(--green);
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.lab-grid span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.lab-warning {
+  padding: 0.75rem 0.85rem;
+  border-left: 2px solid var(--amber);
+  background: rgba(255, 184, 77, 0.07);
+  color: #d8c6a6;
+  font-size: 0.8rem;
+}
+
+.lab-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.85rem 0 0;
+}
+
+.lab-links a {
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--cyan);
+  font-size: 0.72rem;
+  text-decoration: none;
+}
+
+.lab-links a:hover {
+  border-color: var(--cyan);
+  background: var(--cyan-soft);
+}
+
+.lab-table {
+  width: 100%;
+  margin-top: 0.85rem;
+  border-collapse: collapse;
+  font-size: 0.76rem;
+}
+
+.lab-table th,
+.lab-table td {
+  padding: 0.6rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.lab-table th {
+  color: var(--cyan);
 }
 
 .article-hero {
@@ -1788,8 +1972,13 @@ input[type="number"]:focus {
   .fields,
   .lesson-grid,
   .term-grid,
+  .lab-grid,
   .toc {
     grid-template-columns: 1fr;
+  }
+
+  .hands-on summary {
+    align-items: flex-start;
   }
 
   .implication-grid,

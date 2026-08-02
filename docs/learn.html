@@ -40,6 +40,9 @@
             <span>Optimization · 6–8</span>
             <span>Method · 9</span>
           </div>
+          <div class="practice-loop" aria-label="Vòng lặp thực hành">
+            <b>READ</b><span>→</span><b>RUN</b><span>→</span><b>OBSERVE</b><span>→</span><b>SAVE EVIDENCE</b><span>→</span><b>PASS GATE</b>
+          </div>
         </div>
       </section>
 
@@ -120,6 +123,27 @@
                   <div class="term-card"><h3>Critical path</h3><p>Chuỗi công việc quyết định wall-clock latency; phần song song ngoài chuỗi không cộng thẳng.</p></div>
                 </div>
                 <div class="lesson-gate"><strong>Gate:</strong> Vẽ được sequence diagram từ submit đến last token và chỉ ra CPU/GPU boundary.</div>
+                <details class="hands-on">
+                  <summary><span>CODE LAB 00</span> Chạy request đầu tiên và lần theo pipeline</summary>
+                  <div class="lab-body">
+                    <p class="lab-goal"><strong>Mục tiêu:</strong> tạo một request có streaming để thấy rõ thời điểm submit, first token và last token. vLLM chạy trên Linux; với máy Windows RTX 4080 Super, dùng WSL2 hoặc Linux native.</p>
+                    <pre><code># Terminal A — giữ model revision và vLLM version cố định
+vllm serve LiquidAI/LFM2.5-1.2B-Instruct \
+  --max-model-len 8192 \
+  --generation-config vllm
+
+# Terminal B — request tối thiểu qua OpenAI-compatible endpoint
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"LiquidAI/LFM2.5-1.2B-Instruct","messages":[{"role":"user","content":"Explain KV cache in one sentence."}],"temperature":0,"max_tokens":32,"stream":true}'</code></pre>
+                    <div class="lab-grid">
+                      <div><b>Observe</b><span>server log, thời điểm chunk đầu và các chunk sau.</span></div>
+                      <div><b>Save</b><span>command, image/version, model revision và raw response.</span></div>
+                      <div><b>Pass</b><span>gắn được từng stage vào CPU, GPU hoặc network boundary.</span></div>
+                    </div>
+                    <p class="lab-links"><a href="https://docs.vllm.ai/en/latest/getting_started/quickstart/">vLLM Quickstart ↗</a><a href="https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct">LFM2.5 model card ↗</a></p>
+                  </div>
+                </details>
               </div>
             </article>
 
@@ -138,6 +162,31 @@
                   <div class="term-card"><h3>Percentile</h3><p>p95/p99 mô tả tail. Mean không đủ cho workload có queueing và batch interference.</p></div>
                 </div>
                 <div class="lesson-gate"><strong>Gate:</strong> Tự tính TTFT/TPOT từ raw timestamps và giải thích vì sao 47/4 cho 63.19 ERS.</div>
+                <details class="hands-on">
+                  <summary><span>CODE LAB 01</span> Tính metric và sinh Poisson arrivals đúng cách</summary>
+                  <div class="lab-body">
+                    <pre><code>import numpy as np
+
+submitted_ms = 1000.0
+token_ms = np.array([1047.0, 1051.1, 1055.0, 1059.2])
+ttft = token_ms[0] - submitted_ms
+tpot = (token_ms[-1] - token_ms[0]) / (len(token_ms) - 1)
+ers = (0.5*((400-ttft)/390)**2 + 0.5*((10-tpot)/9)**2)*100
+print({"ttft_ms": ttft, "tpot_ms": tpot, "ers": ers})
+
+# Poisson process: exponential inter-arrival times, không phải poisson(count)
+rng = np.random.default_rng(2025)
+request_rate = 7.0  # requests/second
+arrivals_s = np.cumsum(rng.exponential(scale=1/request_rate, size=420))
+print(arrivals_s[:5], arrivals_s[-1])</code></pre>
+                    <div class="lab-grid">
+                      <div><b>Observe</b><span>TPOT chia N−1 intervals; cùng rate vẫn có bursts.</span></div>
+                      <div><b>Save</b><span>seed, timestamps thô và công thức evaluator.</span></div>
+                      <div><b>Pass</b><span>recompute được metric mà không lấy số từ dashboard.</span></div>
+                    </div>
+                    <p class="lab-links"><a href="https://numpy.org/doc/stable/reference/random/generated/numpy.random.exponential.html">NumPy exponential ↗</a><a href="https://numpy.org/doc/stable/reference/random/generated/numpy.random.poisson.html">NumPy Poisson counts ↗</a></p>
+                  </div>
+                </details>
               </div>
             </article>
 
@@ -156,6 +205,31 @@
                   <div class="term-card"><h3>ShortConv state</h3><p>Recurrent convolution state của hybrid layers; semantics rollback khác attention KV.</p></div>
                 </div>
                 <div class="lesson-gate"><strong>Gate:</strong> Tính được weight bytes và KV bytes/token từ model config; phân biệt state của attention với convolution.</div>
+                <details class="hands-on">
+                  <summary><span>CODE LAB 02</span> Đọc config thay vì đoán architecture</summary>
+                  <div class="lab-body">
+                    <pre><code>from transformers import AutoConfig
+
+model = "LiquidAI/LFM2.5-1.2B-Instruct"
+cfg = AutoConfig.from_pretrained(model, trust_remote_code=True)
+d = cfg.to_dict()
+print("model_type:", d.get("model_type"))
+for key, value in d.items():
+    if any(word in key.lower() for word in ("layer", "head", "hidden", "conv")):
+        print(f"{key:36} {value}")
+
+# Weight-memory lower bound; cache/state cần tính riêng từ config + dtype.
+params = 1.17e9
+for name, bytes_per_value in {"BF16": 2, "FP8": 1}.items():
+    print(name, f"{params*bytes_per_value/2**30:.2f} GiB")</code></pre>
+                    <div class="lab-grid">
+                      <div><b>Observe</b><span>layer types và state không giống attention-only Transformer.</span></div>
+                      <div><b>Save</b><span>config.json/model revision, không chỉ tên model.</span></div>
+                      <div><b>Pass</b><span>viết bảng state: weights, KV và convolution cache.</span></div>
+                    </div>
+                    <p class="lab-links"><a href="https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct">LiquidAI architecture ↗</a><a href="https://docs.vllm.ai/en/stable/api/vllm/model_executor/models/lfm2/">vLLM LFM2 implementation ↗</a></p>
+                  </div>
+                </details>
               </div>
             </article>
 
@@ -174,6 +248,27 @@
                   <div class="term-card"><h3>MIG</h3><p>Hardware partition của datacenter GPU, chia SM/L2/memory resources và tạo target riêng.</p></div>
                 </div>
                 <div class="lesson-gate"><strong>Gate:</strong> Không gọi FLOP/peak-FLOPS là measured compute time; nêu được counter cần đo để kiểm chứng.</div>
+                <details class="hands-on">
+                  <summary><span>CODE LAB 03</span> Tạo hardware manifest cho RTX 4080 Super</summary>
+                  <div class="lab-body">
+                    <pre><code>nvidia-smi --query-gpu=name,driver_version,compute_cap,memory.total,memory.free,pstate,clocks.sm --format=csv
+
+python - &lt;&lt;'PY'
+import torch
+p = torch.cuda.get_device_properties(0)
+print({"name": p.name, "capability": torch.cuda.get_device_capability(0),
+       "sm_count": p.multi_processor_count,
+       "vram_GiB": p.total_memory / 2**30})
+PY</code></pre>
+                    <p class="lab-warning"><strong>Windows:</strong> heredoc phía trên dành cho Bash/WSL. Trong PowerShell, lưu phần Python thành file rồi chạy <code>python file.py</code>. RTX 4080 Super là Ada/SM89 với GDDR6X; không dùng kết quả này để khẳng định H200 SM90 MIG sẽ thắng.</p>
+                    <div class="lab-grid">
+                      <div><b>Observe</b><span>VRAM free sau khi server warm-up, không chỉ VRAM danh nghĩa.</span></div>
+                      <div><b>Save</b><span>driver, CUDA, PyTorch, clocks và power state.</span></div>
+                      <div><b>Pass</b><span>manifest đủ để giải thích vì sao benchmark không portable.</span></div>
+                    </div>
+                    <p class="lab-links"><a href="https://docs.nvidia.com/cuda/cuda-c-programming-guide/">CUDA Programming Guide ↗</a><a href="https://docs.nvidia.com/nsight-compute/NsightCompute/index.html">Nsight Compute roofline ↗</a></p>
+                  </div>
+                </details>
               </div>
             </article>
 
@@ -192,6 +287,37 @@
                   <div class="term-card"><h3>Graph break</h3><p>Dynamic control/operator làm compiled/captured region bị chia, trả overhead về eager path.</p></div>
                 </div>
                 <div class="lesson-gate"><strong>Gate:</strong> Nhìn timeline và phân biệt host gap, kernel duration, synchronization và graph replay.</div>
+                <details class="hands-on">
+                  <summary><span>CODE LAB 04</span> A/B eager với CUDA Graph replay</summary>
+                  <div class="lab-body">
+                    <pre><code>import torch
+
+x = torch.randn(4096, 4096, device="cuda")
+static_x = torch.empty_like(x)
+side = torch.cuda.Stream()
+side.wait_stream(torch.cuda.current_stream())
+with torch.cuda.stream(side):
+    for _ in range(3):
+        static_y = torch.sin(static_x) * 2
+torch.cuda.current_stream().wait_stream(side)
+
+graph = torch.cuda.CUDAGraph()
+with torch.cuda.graph(graph):
+    static_y = torch.sin(static_x) * 2
+
+static_x.copy_(x)       # địa chỉ input phải ổn định
+graph.replay()
+torch.cuda.synchronize()
+torch.testing.assert_close(static_y, torch.sin(x) * 2)</code></pre>
+                    <p class="lab-warning">Đo nhiều replay sau warm-up bằng CUDA events hoặc <code>torch.utils.benchmark</code>; không đặt <code>synchronize()</code> giữa từng operator. Với vLLM, A/B <code>--enforce-eager</code> và graph mode trên cùng workload, đồng thời ghi capture sizes/fallbacks.</p>
+                    <div class="lab-grid">
+                      <div><b>Observe</b><span>graph giảm host launch work; kernel duration có thể không đổi.</span></div>
+                      <div><b>Save</b><span>timeline eager và graph, shape/batch đã capture.</span></div>
+                      <div><b>Pass</b><span>chỉ ra graph replay và mọi graph break trên timeline.</span></div>
+                    </div>
+                    <p class="lab-links"><a href="https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/cuda-graphs.html">CUDA Graphs guide ↗</a><a href="https://docs.vllm.ai/en/latest/design/cuda_graphs/">vLLM CUDA Graphs ↗</a><a href="https://docs.vllm.ai/en/latest/configuration/conserving_memory/">vLLM capture sizes ↗</a></p>
+                  </div>
+                </details>
               </div>
             </article>
 
@@ -213,6 +339,32 @@
                   <li>Bucket theo batch size và prefill/decode phase.</li>
                 </ul>
                 <div class="lesson-gate"><strong>Gate:</strong> Từ Systems chọn được đúng kernel/gap; từ Compute đưa ra một hypothesis có counter hỗ trợ.</div>
+                <details class="hands-on">
+                  <summary><span>CODE LAB 05</span> Gắn NVTX, capture timeline, rồi zoom vào kernel</summary>
+                  <div class="lab-body">
+                    <pre><code># Trong replay.py
+import torch
+torch.cuda.nvtx.range_push("warm_decode_replay")
+run_representative_requests()
+torch.cuda.nvtx.range_pop()
+
+# Timeline toàn hệ thống
+nsys profile -t cuda,nvtx,osrt -o traces/lfm --force-overwrite=true \
+  python replay.py
+nsys stats traces/lfm.nsys-rep
+
+# Chỉ sau khi Systems xác định kernel quan trọng
+ncu --set roofline --target-processes all \
+  --kernel-name regex:YOUR_KERNEL -o reports/kernel python kernel_bench.py
+ncu --query-metrics</code></pre>
+                    <div class="lab-grid">
+                      <div><b>Observe</b><span>CPU gaps, CUDA API calls, sync, launches và phase NVTX.</span></div>
+                      <div><b>Save</b><span><code>.nsys-rep</code>, <code>.ncu-rep</code>, command và input bucket.</span></div>
+                      <div><b>Pass</b><span>hypothesis có counter: bandwidth, occupancy hoặc launch gap.</span></div>
+                    </div>
+                    <p class="lab-links"><a href="https://docs.nvidia.com/nsight-systems/UserGuide/">Nsight Systems CLI ↗</a><a href="https://docs.nvidia.com/nsight-compute/NsightComputeCli/index.html">Nsight Compute CLI ↗</a><a href="https://docs.pytorch.org/docs/stable/cuda">PyTorch NVTX ↗</a></p>
+                  </div>
+                </details>
               </div>
             </article>
 
@@ -231,6 +383,27 @@
                   <div class="term-card"><h3>Hybrid KV manager</h3><p>Quản lý attention KV và recurrent state specs khác nhau trong cùng model.</p></div>
                 </div>
                 <div class="lesson-gate"><strong>Gate:</strong> Với một request, chỉ ra nơi queueing, block allocation, prefill scheduling và decode scheduling diễn ra.</div>
+                <details class="hands-on">
+                  <summary><span>CODE LAB 06</span> Serve, benchmark và thay đúng một scheduler knob</summary>
+                  <div class="lab-body">
+                    <pre><code>MODEL=LiquidAI/LFM2.5-1.2B-Instruct
+vllm serve "$MODEL" --generation-config vllm \
+  --max-model-len 8192 --gpu-memory-utilization 0.90 \
+  --max-num-seqs 128 --max-num-batched-tokens 4096
+
+# Smoke test serving stack; chưa thay thế contest replay 70×6-turn
+vllm bench serve --backend openai-chat --model "$MODEL" \
+  --dataset-name random --random-input-len 512 --random-output-len 128 \
+  --request-rate 7 --num-prompts 420 --save-result --save-detailed</code></pre>
+                    <p class="lab-warning"><strong>Version gate:</strong> pin image/vLLM trước, chạy <code>vllm serve --help</code> và <code>vllm bench serve --help</code>, rồi lưu output. Tên option và default có thể đổi. Random dataset chỉ kiểm tra plumbing; score candidate bằng replay chính xác 70 conversations × 6 turns với prefix reuse thật.</p>
+                    <div class="lab-grid">
+                      <div><b>Observe</b><span>queueing, running sequences, KV usage và p50/p95.</span></div>
+                      <div><b>Save</b><span>detailed JSON, server logs, exact command và seed.</span></div>
+                      <div><b>Pass</b><span>A/B chỉ đổi một trong max-seqs hoặc token budget.</span></div>
+                    </div>
+                    <p class="lab-links"><a href="https://docs.vllm.ai/en/latest/cli/bench/serve.html">vLLM bench serve ↗</a><a href="https://docs.vllm.ai/en/stable/api/vllm/benchmarks/serve/">Benchmark metrics/API ↗</a></p>
+                  </div>
+                </details>
               </div>
             </article>
 
@@ -249,6 +422,32 @@
                   <div class="term-card"><h3>Quality gate</h3><p>Exact greedy tokens hoặc task metric/tolerance xác định optimization còn hợp lệ.</p></div>
                 </div>
                 <div class="lesson-gate"><strong>Gate:</strong> A/B weights FP8 và KV FP8 riêng; báo memory, latency và quality như ba outcomes độc lập.</div>
+                <details class="hands-on">
+                  <summary><span>CODE LAB 07</span> Chạy ma trận BF16 / FP8 mà không trộn biến</summary>
+                  <div class="lab-body">
+                    <pre><code># A — baseline BF16
+vllm serve "$MODEL" ...
+
+# B — chỉ weight FP8 (xác nhận spelling bằng --help của bản đã pin)
+vllm serve "$MODEL" ... --quantization fp8
+
+# C — quay lại A để kiểm tra drift
+vllm serve "$MODEL" ...
+
+# D — chỉ KV-cache FP8
+vllm serve "$MODEL" ... --kv-cache-dtype fp8</code></pre>
+                    <table class="lab-table">
+                      <thead><tr><th>Run</th><th>Weight</th><th>KV</th><th>Đo độc lập</th></tr></thead>
+                      <tbody>
+                        <tr><td>A/C</td><td>BF16</td><td>auto</td><td>quality + TTFT/TPOT + free KV blocks</td></tr>
+                        <tr><td>B</td><td>FP8</td><td>auto</td><td>load peak VRAM + selected kernels</td></tr>
+                        <tr><td>D</td><td>BF16</td><td>FP8</td><td>cache capacity + quality drift</td></tr>
+                      </tbody>
+                    </table>
+                    <p class="lab-warning">Online FP8 phải nạp checkpoint gốc trước khi quantize nên peak load memory vẫn quan trọng trên 16GB. Dynamic scaling/dequant overhead có thể làm latency không giảm. Không gộp weight FP8 và KV FP8 trước khi từng biến thắng riêng.</p>
+                    <p class="lab-links"><a href="https://docs.vllm.ai/en/v0.21.0/features/quantization/online/">vLLM online quantization ↗</a><a href="https://docs.vllm.ai/en/latest/features/quantization/quantized_kvcache/">vLLM quantized KV cache ↗</a></p>
+                  </div>
+                </details>
               </div>
             </article>
 
@@ -267,6 +466,37 @@
                   <div class="term-card"><h3>Property test</h3><p>So reference trên nhiều shapes/dtypes/edge values, không chỉ một golden case.</p></div>
                 </div>
                 <div class="lesson-gate"><strong>Gate:</strong> Kernel thắng correctness matrix, shape matrix và end-to-end A/B trên đúng SM target.</div>
+                <details class="hands-on">
+                  <summary><span>CODE LAB 08</span> Viết kernel Triton đầu tiên theo reference-first</summary>
+                  <div class="lab-body">
+                    <pre><code>import torch, triton, triton.language as tl
+
+@triton.jit
+def add_kernel(x, y, out, n: tl.constexpr, BLOCK: tl.constexpr):
+    offsets = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    mask = offsets &lt; n
+    tl.store(out + offsets, tl.load(x + offsets, mask=mask)
+             + tl.load(y + offsets, mask=mask), mask=mask)
+
+def add(x, y):
+    out = torch.empty_like(x)
+    add_kernel[(triton.cdiv(x.numel(), 256),)](x, y, out, x.numel(), BLOCK=256)
+    return out
+
+for n in [1, 127, 256, 4097, 1 &lt;&lt; 20]:
+    x, y = (torch.randn(n, device="cuda") for _ in range(2))
+    torch.testing.assert_close(add(x, y), x + y)
+ms = triton.testing.do_bench(lambda: add(x, y))
+print(f"{ms:.4f} ms")</code></pre>
+                    <p class="lab-warning">Đây là bài học mechanics, không phải candidate tối ưu LFM. Với fusion thật: khóa reference, test non-contiguous/edge shapes/dtypes, đo register pressure và chỉ integrate khi profiler chứng minh intermediate HBM traffic hoặc launch gap nằm trên critical path.</p>
+                    <div class="lab-grid">
+                      <div><b>Observe</b><span>mask cho tail, program grid và warm JIT compilation.</span></div>
+                      <div><b>Save</b><span>correctness matrix, p50 benchmark và SM architecture.</span></div>
+                      <div><b>Pass</b><span>reference match trước; microbench và end-to-end đều thắng.</span></div>
+                    </div>
+                    <p class="lab-links"><a href="https://triton-lang.org/main/getting-started/tutorials/01-vector-add.html">Triton vector add ↗</a><a href="https://triton-lang.org/main/getting-started/tutorials/02-fused-softmax.html">Fused softmax ↗</a><a href="https://triton-lang.org/main/getting-started/tutorials/05-layer-norm.html">LayerNorm tutorial ↗</a><a href="https://docs.pytorch.org/tutorials/recipes/recipes/benchmark.html">PyTorch benchmark recipe ↗</a></p>
+                  </div>
+                </details>
               </div>
             </article>
 
@@ -285,6 +515,29 @@
                   <div class="term-card"><h3>External validity</h3><p>Candidate local thắng có còn thắng trên H200 MIG/evaluator thật hay không.</p></div>
                 </div>
                 <div class="lesson-gate"><strong>Gate:</strong> Mỗi row ledger trả lời một câu hỏi và có parent, one_change, evidence, outcome.</div>
+                <details class="hands-on">
+                  <summary><span>CODE LAB 09</span> Ghi experiment trước khi tiêu submission</summary>
+                  <div class="lab-body">
+                    <pre><code># Từ root của repo
+python -m pip install -e .
+racebench score --ttft 47 --tpot 4 --target 72
+racebench workload --conversations 70 --turns 6 \
+  --rate 7 --seed 2025
+racebench validate-claims data/claims.json
+racebench validate-ledger experiments/ledger.csv
+
+# Một experiment hợp lệ phải trả lời trước khi chạy:
+# hypothesis | parent | one_change | metric | kill_criterion
+# artifact   | hardware | seed | raw_evidence | outcome</code></pre>
+                    <p class="lab-warning">Dùng A/B/A, randomize thứ tự candidate khi có thể, và không sửa ledger sau khi thấy kết quả mà không lưu revision.</p>
+                    <div class="lab-grid">
+                      <div><b>Observe</b><span>gain có lớn hơn repeat noise và còn đúng sau A thứ hai không.</span></div>
+                      <div><b>Save</b><span>raw timestamps, SHA/digest, config, logs và profiler evidence.</span></div>
+                      <div><b>Pass</b><span>người khác tái lập run mà không hỏi thêm thông tin.</span></div>
+                    </div>
+                    <p class="lab-links"><a href="problem.html#experiments">Experiment backlog của repo →</a><a href="index.html#flow">Data/evidence flow →</a></p>
+                  </div>
+                </details>
               </div>
             </article>
 

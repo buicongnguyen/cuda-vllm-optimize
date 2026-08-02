@@ -33,6 +33,23 @@ class SiteCheckTests(unittest.TestCase):
         for module in range(10):
             self.assertIn(f'href="#m{module}"', learning)
 
+    def test_learning_modules_have_runnable_evidence_labs(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        learning = (root / "docs" / "learn.html").read_text(encoding="utf-8")
+
+        self.assertIn('class="practice-loop"', learning)
+        for module in range(10):
+            self.assertIn(f"CODE LAB {module:02d}", learning)
+        for authority in (
+            "docs.vllm.ai",
+            "docs.nvidia.com",
+            "triton-lang.org",
+            "docs.pytorch.org",
+            "numpy.org",
+            "huggingface.co/LiquidAI",
+        ):
+            self.assertIn(authority, learning)
+
     def test_reader_documents_use_html_routes(self) -> None:
         root = Path(__file__).resolve().parents[1] / "docs"
         pages = {

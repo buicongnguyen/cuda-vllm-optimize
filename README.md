@@ -3,7 +3,8 @@
 **Website:** [Problem → requirements → experiments](https://buicongnguyen.github.io/cuda-vllm-optimize/problem.html) ·
 [Experiment flow](https://buicongnguyen.github.io/cuda-vllm-optimize/) ·
 [Learning path](https://buicongnguyen.github.io/cuda-vllm-optimize/learn.html) ·
-[RTX 4080 Super runbook](https://buicongnguyen.github.io/cuda-vllm-optimize/reproduce-rtx4080.html)
+[RTX 4080 Super runbook](https://buicongnguyen.github.io/cuda-vllm-optimize/reproduce-rtx4080.html) ·
+[Statistics definitions & sources](docs/STATISTICS_REFERENCES.md)
 
 Một repository **benchmark-first** để phân tích và tối ưu serving
 `LiquidAI/LFM2.5-1.2B-Instruct` bằng vLLM trên H200 MIG `1g.18gb`, 3 vCPU và

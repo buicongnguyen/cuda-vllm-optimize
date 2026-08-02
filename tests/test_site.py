@@ -56,8 +56,25 @@ class SiteCheckTests(unittest.TestCase):
             "CI.high &lt; 0",
             "ΔERS",
             "Không có R0′",
+            "DEFINITION → SOURCE → CODE",
+            "NIST: paired observations",
+            "REPO DECISION RULE",
+            "DERIVED / UNVERIFIED",
+            "STATISTICS_REFERENCES.md",
         ):
             self.assertIn(statistical_concept, learning)
+
+        source_map = root / "docs" / "STATISTICS_REFERENCES.md"
+        self.assertTrue(source_map.is_file())
+        source_text = source_map.read_text(encoding="utf-8")
+        for source in (
+            "NIST: Paired Observations",
+            "NIST: Percentiles",
+            "SciPy: bootstrap",
+            "scripts/rtx4080_compare.py",
+            "src/racebench/score.py",
+        ):
+            self.assertIn(source, source_text)
 
     def test_rtx4080_runbook_has_complete_reproduction_flow(self) -> None:
         root = Path(__file__).resolve().parents[1]

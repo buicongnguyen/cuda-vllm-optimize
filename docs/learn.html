@@ -562,6 +562,75 @@ racebench validate-ledger experiments/ledger.csv
                   <div class="term-card"><h3>Bootstrap 95% CI</h3><p>Resample paired deltas có replacement, tính statistic nhiều lần rồi lấy interval. Nó mô tả uncertainty của estimator, không phải quality/correctness.</p></div>
                 </div>
 
+                <section class="definition-sources" aria-labelledby="definition-source-title">
+                  <div class="definition-source-head">
+                    <div>
+                      <span>DEFINITION → SOURCE → CODE</span>
+                      <h3 id="definition-source-title">Định nghĩa nào là chuẩn, định nghĩa nào thuộc protocol của repo?</h3>
+                    </div>
+                    <a class="source-map-link" href="https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/docs/STATISTICS_REFERENCES.md">Bản tra cứu trên GitHub ↗</a>
+                  </div>
+                  <p class="source-policy"><strong>Cách đọc nhãn:</strong> <code>STANDARD</code> là khái niệm thống kê có nguồn độc lập; <code>REPO PROTOCOL</code> là quy ước ra quyết định của experiment này; <code>DERIVED / UNVERIFIED</code> là phép tính suy ra từ công thức trong bài viết, chưa được xác nhận bằng evaluator chính thức.</p>
+
+                  <div class="definition-source-grid">
+                    <article class="definition-source-card">
+                      <span class="source-kind standard">STANDARD · ADAPTED</span>
+                      <h4>Paired request R0/B</h4>
+                      <p><strong>Định nghĩa:</strong> observation thứ <code>i</code> ở R0 và B phải là cùng một request/workload unit. Repo tính <code>Δᵢ = latencyᵢ(B) − latencyᵢ(R0)</code>; pairing kiểm soát khác biệt khó/dễ giữa requests, nhưng không tự kiểm soát drift theo thời gian.</p>
+                      <div class="definition-links"><a href="https://www.itl.nist.gov/div898/handbook/prc/section3/prc311.htm">NIST: paired observations ↗</a><a href="https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/scripts/rtx4080_compare.py">Repo: pairing + delta ↗</a></div>
+                    </article>
+
+                    <article class="definition-source-card">
+                      <span class="source-kind protocol">REPO PROTOCOL</span>
+                      <h4>A/B/A · baseline-return R0′</h4>
+                      <p><strong>Định nghĩa:</strong> chạy R0 trước, candidate B ở giữa, rồi baseline R0′ sau. <code>D = metric(R0′) − metric(R0)</code> làm drift quan sát được. Đây là bracketing protocol của repo, không phải tên một statistical test chuẩn và không chứng minh drift đã bị loại bỏ.</p>
+                      <div class="definition-links"><a href="https://www.itl.nist.gov/div898/handbook/pri/section3/pri332.htm">NIST: blocking nuisance factors ↗</a><a href="https://www.itl.nist.gov/div898/handbook/prc/section1/prc17.htm">NIST: trends in sequence ↗</a><a href="reproduce-rtx4080.html#matrix">Repo: A/B/A run matrix →</a></div>
+                    </article>
+
+                    <article class="definition-source-card">
+                      <span class="source-kind standard">STANDARD</span>
+                      <h4>Mean và median</h4>
+                      <p><strong>Định nghĩa:</strong> mean là tổng chia cho số observations; median là vị trí giữa của dữ liệu đã sort (trung bình hai vị trí giữa nếu <code>n</code> chẵn). Mean nhạy với tail hơn; median không mô tả tail latency.</p>
+                      <div class="definition-links"><a href="https://www.itl.nist.gov/div898/handbook/eda/section3/eda351.htm">NIST: measures of location ↗</a><a href="https://docs.python.org/3/library/statistics.html">Python: mean/median API ↗</a></div>
+                    </article>
+
+                    <article class="definition-source-card">
+                      <span class="source-kind standard">STANDARD · METHOD-SENSITIVE</span>
+                      <h4>p95 và p99</h4>
+                      <p><strong>Định nghĩa:</strong> p95/p99 là 95th/99th percentile của một distribution, không phải “95%/99% confidence.” Với sample hữu hạn, kết quả phụ thuộc quantile/interpolation method; repo dùng linear/type-7 nên report phải ghi method.</p>
+                      <div class="definition-links"><a href="https://www.itl.nist.gov/div898/handbook/prc/section2/prc262.htm">NIST: percentiles ↗</a><a href="https://numpy.org/doc/stable/reference/generated/numpy.percentile.html">NumPy: percentile methods ↗</a><a href="https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/scripts/rtx4080_compare.py">Repo: linear percentile ↗</a></div>
+                    </article>
+
+                    <article class="definition-source-card">
+                      <span class="source-kind standard">STANDARD · REPO METHOD</span>
+                      <h4>Bootstrap 95% confidence interval</h4>
+                      <p><strong>Định nghĩa:</strong> resample các paired deltas với replacement, tính lại mean cho mỗi resample, rồi lấy 2.5th và 97.5th percentiles. Repo dùng percentile bootstrap, 2,000 resamples và seed cố định; SciPy mặc định là BCa nên hai kết quả không mặc nhiên giống nhau.</p>
+                      <div class="definition-links"><a href="https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.bootstrap.html">SciPy: bootstrap CI ↗</a><a href="https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/scripts/rtx4080_compare.py">Repo: exact implementation ↗</a></div>
+                    </article>
+
+                    <article class="definition-source-card">
+                      <span class="source-kind protocol">REPO DECISION RULE</span>
+                      <h4>faster / slower / uncertain</h4>
+                      <p><strong>Định nghĩa:</strong> vì delta là candidate minus baseline, <code>CI.high &lt; 0</code> → faster; <code>CI.low &gt; 0</code> → slower; interval chứa 0 → uncertain. Đây là label của repo cho từng latency metric, không phải kết luận về correctness hay toàn hệ thống.</p>
+                      <div class="definition-links"><a href="https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.bootstrap.html">Basis: confidence interval ↗</a><a href="https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/scripts/rtx4080_compare.py">Repo: classifier ↗</a></div>
+                    </article>
+
+                    <article class="definition-source-card">
+                      <span class="source-kind unverified">DERIVED / UNVERIFIED</span>
+                      <h4>ERS delta</h4>
+                      <p><strong>Định nghĩa:</strong> <code>ΔERS = ERS(B) − ERS(R0)</code>, dùng cùng cách aggregate TTFT/TPOT cho hai run. Công thức ERS hiện được trích từ nội dung người dùng cung cấp; chưa có evaluator/spec chính thức công khai để xác nhận clipping, aggregation hoặc quality gates.</p>
+                      <div class="definition-links"><a href="problem.html#contract">Repo: evidence status →</a><a href="https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/src/racebench/score.py">Repo: formula code ↗</a></div>
+                    </article>
+
+                    <article class="definition-source-card">
+                      <span class="source-kind caution">DESIGN CAUTION</span>
+                      <h4>Cảnh báo khi chưa có R0′</h4>
+                      <p><strong>Định nghĩa:</strong> không có baseline-return nghĩa là experiment chưa đo được baseline đã đổi bao nhiêu sau khi B chạy. Kết luận causal phải để trạng thái <em>provisional</em>; pairing R0/B không đủ để loại thermal, clock, cache hoặc background-load drift.</p>
+                      <div class="definition-links"><a href="https://www.itl.nist.gov/div898/handbook/prc/section1/prc17.htm">NIST: detect sequential trends ↗</a><a href="reproduce-rtx4080.html#decide">Repo: promotion gate →</a></div>
+                    </article>
+                  </div>
+                </section>
+
                 <div class="formula-grid" aria-label="Các công thức thống kê">
                   <section class="formula-card">
                     <span>01 · PAIRED DELTA</span>

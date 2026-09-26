@@ -23,6 +23,11 @@ class MetricsTests(unittest.TestCase):
         self.assertAlmostEqual(summary["ttft_ms"], 15.0)
         self.assertAlmostEqual(summary["tpot_ms"], 2.5)
 
+    def test_single_token_responses_have_no_tpot_aggregate(self) -> None:
+        summary = summarize_requests([RequestTiming("a", 0.0, 0.01, 0.01, 1)])
+        self.assertAlmostEqual(summary["ttft_ms"], 10.0)
+        self.assertIsNone(summary["tpot_ms"])
+
     def test_percentile(self) -> None:
         self.assertAlmostEqual(percentile([1, 2, 3, 4], 0.5), 2.5)
         self.assertAlmostEqual(aggregate([1, 2, 100], "p90"), 80.4)

@@ -30,7 +30,9 @@ if ($DoctorOnly) {
 } else {
     $command = "cd '$quotedRepo' && bash scripts/rtx4080_setup_wsl.sh"
     if ($Run -ne "none") {
-        $command += " && source `$HOME/.venvs/lfm-racebench-rtx4080/bin/activate && cd `$HOME/src/cuda-vllm-optimize && python scripts/rtx4080_lab.py run --mode $Run"
+        # The setup script runs the lab from the tree it just synced (the ext4
+        # mirror for /mnt checkouts, the checkout itself otherwise).
+        $command += " --run $Run"
     }
 }
 

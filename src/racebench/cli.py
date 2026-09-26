@@ -9,12 +9,13 @@ import sys
 
 from .claims import load_claims, validate_claims
 from .experiments import load_ledger, validate_ledger
-from .score import score_report
+from .score import ScorePolicy, score_report
 from .workload import poisson_arrivals, write_jsonl
 
 
 def _score(args: argparse.Namespace) -> int:
-    print(json.dumps(score_report(args.ttft, args.tpot, args.target), indent=2))
+    policy = ScorePolicy(clamp_components=not args.unclamped)
+    print(json.dumps(score_report(args.ttft, args.tpot, args.target, policy), indent=2))
     return 0
 
 
@@ -51,6 +52,11 @@ def build_parser() -> argparse.ArgumentParser:
     score.add_argument("--ttft", type=float, required=True, help="TTFT in milliseconds")
     score.add_argument("--tpot", type=float, required=True, help="TPOT in milliseconds")
     score.add_argument("--target", type=float, default=72.0)
+    score.add_argument(
+        "--unclamped",
+        action="store_true",
+        help="evaluate the literal quoted quadratic, even where it rewards worse latency",
+    )
     score.set_defaults(func=_score)
 
     ledger = subparsers.add_parser("validate-ledger", help="validate experiments CSV")

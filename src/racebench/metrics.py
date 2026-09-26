@@ -66,7 +66,7 @@ def aggregate(values: Iterable[float], method: Aggregate = "mean") -> float:
 def summarize_requests(
     timings: Iterable[RequestTiming],
     method: Aggregate = "mean",
-) -> dict[str, float | int | str]:
+) -> dict[str, float | int | str | None]:
     requests = list(timings)
     if not requests:
         raise ValueError("at least one timing is required")
@@ -75,5 +75,6 @@ def summarize_requests(
         "requests": len(requests),
         "aggregation": method,
         "ttft_ms": aggregate((timing.ttft_ms for timing in requests), method),
-        "tpot_ms": aggregate(tpots, method),
+        # Single-token responses have no inter-token interval to aggregate.
+        "tpot_ms": aggregate(tpots, method) if tpots else None,
     }

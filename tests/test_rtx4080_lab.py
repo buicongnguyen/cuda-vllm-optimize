@@ -1,16 +1,30 @@
+import contextlib
+import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from scripts import rtx4080_manifest
 from scripts.rtx4080_lab import (
     ServerConfig,
+    build_parser,
     config_diff,
+    execute_run,
     option_map,
     parse_args_file,
     server_command,
     server_environment,
 )
+
+
+def dry_run_plan(*extra: str) -> dict[str, object]:
+    with tempfile.TemporaryDirectory() as directory:
+        args = build_parser().parse_args(["run", "--dry-run", "--output-dir", directory, *extra])
+        with contextlib.redirect_stdout(io.StringIO()):
+            execute_run(args)
+        return json.loads((Path(directory) / "experiment-plan.json").read_text(encoding="utf-8"))
 
 
 class Rtx4080LabTests(unittest.TestCase):
@@ -56,6 +70,29 @@ class Rtx4080LabTests(unittest.TestCase):
     def test_server_disables_flashinfer_sampler_by_default(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
             self.assertEqual(server_environment()["VLLM_USE_FLASHINFER_SAMPLER"], "0")
+
+    def test_every_measured_stage_is_warmed_up_before_the_clock(self) -> None:
+        self.assertEqual(dry_run_plan("--mode", "aba")["shape"]["warmup_conversations"], 4)
+        self.assertEqual(dry_run_plan("--mode", "smoke")["shape"]["warmup_conversations"], 1)
+        self.assertEqual(
+            dry_run_plan("--mode", "baseline", "--warmup-conversations", "0")["shape"][
+                "warmup_conversations"
+            ],
+            0,
+        )
+
+    def test_mirror_marker_keeps_dirty_tree_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            marker = root / ".source-git-sha"
+            with patch.object(rtx4080_manifest, "ROOT", root), patch.object(
+                rtx4080_manifest, "command_output", return_value=None
+            ):
+                self.assertEqual(rtx4080_manifest.source_git_state(), (None, None))
+                marker.write_text("abc123-dirty\n", encoding="utf-8")
+                self.assertEqual(rtx4080_manifest.source_git_state(), ("abc123", True))
+                marker.write_text("abc123\n", encoding="utf-8")
+                self.assertEqual(rtx4080_manifest.source_git_state(), ("abc123", False))
 
     def test_checked_in_candidate_changes_only_prefix_cache(self) -> None:
         root = Path(__file__).resolve().parents[1]

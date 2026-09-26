@@ -4,6 +4,30 @@ set -euo pipefail
 SOURCE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_DIR="$SOURCE_ROOT"
 SOURCE_GIT_SHA="$(git -c safe.directory="$SOURCE_ROOT" -C "$SOURCE_ROOT" rev-parse HEAD 2>/dev/null || true)"
+# Results from an uncommitted tree must not be attributed to a clean commit.
+if [[ -n "$SOURCE_GIT_SHA" ]] && [[ -n "$(git -c safe.directory="$SOURCE_ROOT" -C "$SOURCE_ROOT" status --porcelain --untracked-files=no 2>/dev/null)" ]]; then
+  SOURCE_GIT_SHA="$SOURCE_GIT_SHA-dirty"
+fi
+RUN_MODE=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --run)
+      RUN_MODE="${2:-}"
+      shift 2
+      ;;
+    *)
+      echo "ERROR: unknown argument: $1 (usage: rtx4080_setup_wsl.sh [--run smoke|baseline|aba])" >&2
+      exit 2
+      ;;
+  esac
+done
+case "$RUN_MODE" in
+  ""|smoke|baseline|aba) ;;
+  *)
+    echo "ERROR: --run must be smoke, baseline or aba" >&2
+    exit 2
+    ;;
+esac
 VLLM_VERSION="${VLLM_VERSION:-0.25.1}"
 PYTHON_VERSION="${PYTHON_VERSION:-3.12}"
 VENV_DIR="${VENV_DIR:-$HOME/.venvs/lfm-racebench-rtx4080}"
@@ -107,6 +131,12 @@ mkdir -p "$ROOT_DIR/results/rtx4080"
 uv pip freeze > "$ROOT_DIR/results/rtx4080/environment.freeze.txt"
 
 python "$ROOT_DIR/scripts/rtx4080_lab.py" doctor
+
+if [[ -n "$RUN_MODE" ]]; then
+  # Run from the tree this setup just synced, never from a stale mirror.
+  cd "$ROOT_DIR"
+  exec python scripts/rtx4080_lab.py run --mode "$RUN_MODE"
+fi
 
 cat <<EOF
 

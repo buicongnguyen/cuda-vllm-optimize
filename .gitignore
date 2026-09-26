@@ -9,6 +9,7 @@ venv/
 dist/
 build/
 results/*.json
+results/*.jsonl
 results/*.csv
 results/rtx4080/
 !results/.gitkeep

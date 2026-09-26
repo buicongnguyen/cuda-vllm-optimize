@@ -61,8 +61,8 @@ class Rtx4080CompareTests(unittest.TestCase):
         candidate = {
             "failures": {"baseline": 0, "candidate": 0},
             "metrics": {
-                "ttft_ms": {"direction": "faster"},
-                "tpot_ms": {"direction": "faster"},
+                "ttft_ms": {"direction": "faster", "paired_delta_median": -1.0},
+                "tpot_ms": {"direction": "faster", "paired_delta_median": -0.1},
             },
             "quoted_ers": {"delta": 5.0},
         }
@@ -70,12 +70,36 @@ class Rtx4080CompareTests(unittest.TestCase):
         self.assertEqual(decision["classification"], "incomplete_without_baseline_return")
         self.assertFalse(decision["promote"])
 
+    def test_mean_gain_the_median_request_lacks_is_not_a_gain(self) -> None:
+        # 2026-08-02 block: five cold-start requests (~1 s TTFT) in R0 made the
+        # mean delta -11.8 ms while the median paired request was 1.3 ms slower.
+        candidate = {
+            "failures": {"baseline": 0, "candidate": 0},
+            "metrics": {
+                "ttft_ms": {"direction": "faster", "paired_delta_median": 1.35},
+                "tpot_ms": {"direction": "faster", "paired_delta_median": 0.009},
+            },
+            "quoted_ers": {"delta": 4.35},
+        }
+        decision = overall_decision(candidate, None)
+        self.assertEqual(decision["classification"], "inconclusive_outlier_dominated")
+        self.assertIn("ttft_ms, tpot_ms", decision["warnings"][0])
+        self.assertFalse(decision["promote"])
+
     def test_baseline_return_larger_than_candidate_is_confounded(self) -> None:
         candidate = {
             "failures": {"baseline": 0, "candidate": 0},
             "metrics": {
-                "ttft_ms": {"direction": "faster", "paired_delta_mean": -10.0},
-                "tpot_ms": {"direction": "faster", "paired_delta_mean": -0.2},
+                "ttft_ms": {
+                    "direction": "faster",
+                    "paired_delta_mean": -10.0,
+                    "paired_delta_median": -9.0,
+                },
+                "tpot_ms": {
+                    "direction": "faster",
+                    "paired_delta_mean": -0.2,
+                    "paired_delta_median": -0.2,
+                },
             },
             "quoted_ers": {"delta": 4.0},
         }

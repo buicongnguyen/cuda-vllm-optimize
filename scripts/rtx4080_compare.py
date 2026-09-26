@@ -162,6 +162,23 @@ def overall_decision(
             "promote": False,
             "warnings": ["At least one latency metric has a 95% CI entirely above zero."],
         }
+    # A mean-based "faster" that the typical paired request does not share is
+    # carried by a few requests, e.g. cold-start JIT on a freshly started server.
+    outlier_led = [
+        metric
+        for metric, evidence in candidate_report["metrics"].items()
+        if evidence["direction"] == "faster" and float(evidence["paired_delta_median"]) >= 0
+    ]
+    if outlier_led:
+        return {
+            "classification": "inconclusive_outlier_dominated",
+            "promote": False,
+            "warnings": [
+                "Mean paired delta is faster but the median paired delta is not for: "
+                + ", ".join(outlier_led)
+                + ". Inspect the slowest requests (cold start, tail) before attributing a gain."
+            ],
+        }
     if drift_report is None:
         return {
             "classification": "incomplete_without_baseline_return",

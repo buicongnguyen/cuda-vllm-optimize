@@ -163,11 +163,13 @@ def doctor_report(config_path: Path = DEFAULT_BASELINE) -> dict[str, Any]:
     )
     gpu_visible = smi_code == 0 and bool(smi_output)
     checks.append(Check("nvidia-smi", gpu_visible, smi_output or "not available"))
+    # Other CUDA GPUs can run the method; the setup script only warns, so match it.
     checks.append(
         Check(
             "rtx4080-super",
             gpu_visible and "RTX 4080 SUPER" in smi_output.upper(),
             smi_output.splitlines()[0] if smi_output else "GPU not detected",
+            required=False,
         )
     )
 
@@ -286,6 +288,7 @@ def run_stage(
     turns: int,
     rate: float,
     max_tokens: int,
+    warmup_conversations: int,
     seed: int,
 ) -> Path:
     base_url = f"http://127.0.0.1:{port}"
@@ -320,6 +323,8 @@ def run_stage(
                 str(seed),
                 "--max-tokens",
                 str(max_tokens),
+                "--warmup-conversations",
+                str(warmup_conversations),
                 "--output",
                 str(output),
             ]
@@ -341,24 +346,26 @@ def execute_run(args: argparse.Namespace) -> int:
     run_dir.mkdir(parents=True, exist_ok=True)
 
     if args.mode == "smoke":
-        shape = {"conversations": 2, "turns": 2, "rate": 1.0, "max_tokens": 16}
-        stages = [("R0-smoke", baseline)]
-    elif args.mode == "baseline":
         shape = {
-            "conversations": args.conversations,
-            "turns": args.turns,
-            "rate": args.rate,
-            "max_tokens": args.max_tokens,
+            "conversations": 2,
+            "turns": 2,
+            "rate": 1.0,
+            "max_tokens": 16,
+            "warmup_conversations": min(args.warmup_conversations, 1),
         }
-        stages = [("R0-baseline", baseline)]
+        stages = [("R0-smoke", baseline)]
     else:
         shape = {
             "conversations": args.conversations,
             "turns": args.turns,
             "rate": args.rate,
             "max_tokens": args.max_tokens,
+            "warmup_conversations": args.warmup_conversations,
         }
-        stages = [("R0-baseline", baseline), ("B-candidate", candidate), ("R0-prime", baseline)]
+        if args.mode == "baseline":
+            stages = [("R0-baseline", baseline)]
+        else:
+            stages = [("R0-baseline", baseline), ("B-candidate", candidate), ("R0-prime", baseline)]
 
     plan = {
         "mode": args.mode,
@@ -398,6 +405,7 @@ def execute_run(args: argparse.Namespace) -> int:
             turns=shape["turns"],
             rate=shape["rate"],
             max_tokens=shape["max_tokens"],
+            warmup_conversations=shape["warmup_conversations"],
             seed=args.seed,
         )
 
@@ -447,6 +455,12 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--turns", type=int, default=6)
     run.add_argument("--rate", type=float, default=7.0)
     run.add_argument("--max-tokens", type=int, default=64)
+    run.add_argument(
+        "--warmup-conversations",
+        type=int,
+        default=4,
+        help="unrecorded warm-up conversations per server before measurement (0 disables)",
+    )
     run.add_argument("--seed", type=int, default=2025)
     run.add_argument("--dry-run", action="store_true")
     return parser
@@ -474,6 +488,8 @@ def main() -> int:
         ).returncode
     if min(args.port, args.startup_timeout, args.conversations, args.turns, args.rate, args.max_tokens) <= 0:
         raise SystemExit("port, timeouts and workload parameters must be positive")
+    if args.warmup_conversations < 0:
+        raise SystemExit("warmup-conversations cannot be negative")
     return execute_run(args)
 
 

@@ -37,15 +37,28 @@ def package_version(name: str) -> str | None:
         return None
 
 
-def source_git_sha() -> str | None:
-    sha = command_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"])
+def source_git_state() -> tuple[str | None, bool | None]:
+    """Return (HEAD sha, tree has uncommitted tracked changes).
+
+    A bare HEAD sha misattributes results produced from an uncommitted tree, so
+    the dirty flag travels with it. The WSL mirror has no .git; the setup
+    script writes ``<sha>`` or ``<sha>-dirty`` to ``.source-git-sha`` instead.
+    """
+
+    git = ["git", "-c", f"safe.directory={ROOT}", "-C", str(ROOT)]
+    sha = command_output([*git, "rev-parse", "HEAD"])
     if sha:
-        return sha
+        status = command_output([*git, "status", "--porcelain", "--untracked-files=no"])
+        return sha, None if status is None else bool(status)
     marker = ROOT / ".source-git-sha"
     if marker.is_file():
         value = marker.read_text(encoding="utf-8").strip()
-        return value or None
-    return None
+        if not value:
+            return None, None
+        if value.endswith("-dirty"):
+            return value.removesuffix("-dirty"), True
+        return value, False
+    return None, None
 
 
 def torch_manifest() -> dict[str, Any]:
@@ -75,6 +88,7 @@ def torch_manifest() -> dict[str, Any]:
 
 
 def build_manifest() -> dict[str, Any]:
+    git_sha, git_dirty = source_git_state()
     smi_query = command_output(
         [
             "nvidia-smi",
@@ -91,7 +105,8 @@ def build_manifest() -> dict[str, Any]:
             name: package_version(name)
             for name in ("vllm", "torch", "triton", "transformers", "httpx")
         },
-        "git_sha": source_git_sha(),
+        "git_sha": git_sha,
+        "git_dirty": git_dirty,
         "wsl_kernel": command_output(["uname", "-a"]),
         "nvidia_smi_csv": smi_query,
         "torch": torch_manifest(),

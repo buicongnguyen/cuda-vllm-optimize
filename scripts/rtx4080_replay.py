@@ -8,6 +8,12 @@ Before the measured clock starts, a few unrecorded warm-up conversations run
 against the fresh server. vLLM JIT-compiles some Triton kernels on the first
 requests it serves; without a warm-up those compiles land in the first
 measured turns and dominate mean TTFT.
+
+A/B pairing needs the same request to carry the same prompt in every run.
+vLLM is not batch-invariant, so a run's own answers differ from run to run;
+with ``--history live`` later turns therefore embed different context. The
+default ``--history canned`` feeds fixed reference answers back instead, and
+``--output-length fixed`` makes every request generate exactly max-tokens.
 """
 
 from __future__ import annotations
@@ -16,6 +22,7 @@ import argparse
 import asyncio
 from collections import Counter
 from dataclasses import asdict, dataclass
+import hashlib
 import json
 from pathlib import Path
 from time import perf_counter
@@ -42,8 +49,32 @@ WARMUP_TURNS = [
     "Add the numbers you just listed.",
 ]
 
+# Assistant turns for --history canned: identical context in every run, so
+# request c012-t04 is the same prompt in R0, B and R0-prime.
+CANNED_ANSWERS = [
+    "A KV cache stores the attention keys and values of earlier tokens, so each new "
+    "token computes only its own. It trades GPU memory for skipping repeated prefill work.",
+    "Benefit: decode no longer recomputes the whole prefix. Cost: cache memory grows with "
+    "context length and batch size, which limits how many sequences fit at once.",
+    "| Phase | Work per step | Usual limit |\n|---|---|---|\n| Prefill | every prompt token "
+    "at once | compute |\n| Decode | one token per sequence | memory bandwidth |",
+    "Continuous batching lets requests join and leave at every step, so new prefills "
+    "interleave with running decodes: throughput rises, but a long prefill can delay them.",
+    "Time one decode step at batch sizes 1, 2, 4 and 8. If the step time stays flat, the "
+    "step is bound by reading weights, not by arithmetic, and the hypothesis fails.",
+    "We covered what a KV cache stores and costs, how prefill and decode differ, how "
+    "continuous batching mixes them, and one measurement that tests a bottleneck claim.",
+]
+
 # Exit status when some requests failed but every result was written.
 RECORDED_FAILURES_EXIT = 3
+
+
+def prompt_digest(messages: list[dict[str, str]]) -> str:
+    """Identity of the exact prompt, so pairing can prove R0 and B saw the same input."""
+
+    encoded = json.dumps(messages, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def render_prompt(template: str, conversation_id: int, turn: int) -> str:
@@ -62,6 +93,7 @@ class ReplayResult:
     first_token_s: float | None
     last_content_s: float | None
     last_token_s: float | None
+    prompt_sha256: str | None
     prompt_tokens: int | None
     output_tokens: int | None
     content_events: int | None
@@ -70,6 +102,7 @@ class ReplayResult:
     ttft_ms: float | None
     tpot_ms: float | None
     status_code: int | None
+    output_text: str | None
     error: str | None
 
 
@@ -121,8 +154,9 @@ async def stream_chat(
     model: str,
     messages: list[dict[str, str]],
     max_tokens: int,
+    fixed_length: bool = False,
 ) -> StreamOutcome:
-    payload = {
+    payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
         "temperature": 0,
@@ -130,6 +164,10 @@ async def stream_chat(
         "stream": True,
         "stream_options": {"include_usage": True},
     }
+    if fixed_length:
+        # vLLM extensions: every request decodes exactly max_tokens tokens, so
+        # R0 and B divide TPOT by the same N.
+        payload.update({"ignore_eos": True, "min_tokens": max_tokens})
     submitted = perf_counter()
     first_token: float | None = None
     last_content: float | None = None
@@ -211,6 +249,7 @@ async def warm_up(
     model: str,
     conversations: int,
     max_tokens: int,
+    fixed_length: bool = False,
 ) -> dict[str, Any]:
     """Serve unrecorded multi-turn traffic so cold-start JIT stays out of the sample."""
 
@@ -221,7 +260,7 @@ async def warm_up(
         for turn, template in enumerate(WARMUP_TURNS, start=1):
             user_text = render_prompt(template, conversation_id, turn)
             messages = [*history, {"role": "user", "content": user_text}]
-            outcome = await stream_chat(client, endpoint, model, messages, max_tokens)
+            outcome = await stream_chat(client, endpoint, model, messages, max_tokens, fixed_length)
             history.extend(
                 [
                     {"role": "user", "content": user_text},
@@ -261,6 +300,7 @@ async def replay(args: argparse.Namespace) -> tuple[list[ReplayResult], dict[str
         for turn in range(1, args.turns + 1)
     }
     results: list[ReplayResult] = []
+    fixed_length = args.output_length == "fixed"
     endpoint = f"{args.base_url.rstrip('/')}/v1/chat/completions"
     connections = max(args.conversations, args.warmup_conversations)
     limits = httpx.Limits(max_connections=connections, max_keepalive_connections=connections)
@@ -270,7 +310,7 @@ async def replay(args: argparse.Namespace) -> tuple[list[ReplayResult], dict[str
         warmup: dict[str, Any] = {"warmup_conversations": 0, "warmup_requests": 0, "warmup_s": 0.0}
         if args.warmup_conversations:
             warmup = await warm_up(
-                client, endpoint, args.model, args.warmup_conversations, args.max_tokens
+                client, endpoint, args.model, args.warmup_conversations, args.max_tokens, fixed_length
             )
         run_started = perf_counter()
 
@@ -293,8 +333,11 @@ async def replay(args: argparse.Namespace) -> tuple[list[ReplayResult], dict[str
             )
             messages = [*history, {"role": "user", "content": user_text}]
             result = empty_result(arrival)
+            result.prompt_sha256 = prompt_digest(messages)
             try:
-                outcome = await stream_chat(client, endpoint, args.model, messages, args.max_tokens)
+                outcome = await stream_chat(
+                    client, endpoint, args.model, messages, args.max_tokens, fixed_length
+                )
                 timing = RequestTiming(
                     arrival.request_id,
                     outcome.submitted,
@@ -314,10 +357,15 @@ async def replay(args: argparse.Namespace) -> tuple[list[ReplayResult], dict[str
                 result.ttft_ms = timing.ttft_ms
                 result.tpot_ms = timing.tpot_ms
                 result.status_code = outcome.status_code
+                result.output_text = outcome.text
+                if args.history == "canned":
+                    answer = CANNED_ANSWERS[(arrival.turn - 1) % len(CANNED_ANSWERS)]
+                else:
+                    answer = outcome.text
                 history.extend(
                     [
                         {"role": "user", "content": user_text},
-                        {"role": "assistant", "content": outcome.text},
+                        {"role": "assistant", "content": answer},
                     ]
                 )
             except Exception as error:  # preserve failures as benchmark evidence
@@ -340,6 +388,8 @@ async def replay(args: argparse.Namespace) -> tuple[list[ReplayResult], dict[str
         "conversations": args.conversations,
         "turns": args.turns,
         "max_tokens": args.max_tokens,
+        "history": args.history,
+        "output_length": args.output_length,
         "requested": len(results),
         "successful": len(successful),
         "failed": len(results) - len(successful),
@@ -380,6 +430,7 @@ def empty_result(arrival: Arrival, error: str | None = None) -> ReplayResult:
         first_token_s=None,
         last_content_s=None,
         last_token_s=None,
+        prompt_sha256=None,
         prompt_tokens=None,
         output_tokens=None,
         content_events=None,
@@ -388,6 +439,7 @@ def empty_result(arrival: Arrival, error: str | None = None) -> ReplayResult:
         ttft_ms=None,
         tpot_ms=None,
         status_code=None,
+        output_text=None,
         error=error,
     )
 
@@ -417,6 +469,19 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=4,
         help="unrecorded two-turn conversations served before the measured clock starts (0 disables)",
+    )
+    parser.add_argument(
+        "--history",
+        choices=("canned", "live"),
+        default="canned",
+        help="canned: fixed assistant turns, identical prompts in every run (pairable); "
+        "live: feed back this run's own answers",
+    )
+    parser.add_argument(
+        "--output-length",
+        choices=("fixed", "natural"),
+        default="fixed",
+        help="fixed: ignore EOS and decode exactly --max-tokens; natural: stop at EOS",
     )
     parser.add_argument("--aggregate", choices=("mean", "median", "p90", "p95", "p99"), default="mean")
     parser.add_argument("--turn-prompts", type=Path)

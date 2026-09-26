@@ -5,7 +5,9 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from racebench.claims import validate_claims
+from collections import Counter
+
+from racebench.claims import load_claims, validate_claims
 from racebench.cli import main
 from racebench.experiments import Experiment, load_ledger, validate_ledger
 
@@ -32,7 +34,7 @@ def experiment(experiment_id: str = "E001", parent_id: str = "", **changes: obje
 class ValidationTests(unittest.TestCase):
     def test_verified_claim_needs_source(self) -> None:
         errors = validate_claims(
-            [{"id": "c1", "claim": "something", "status": "verified", "sources": []}]
+            [{"id": "c1", "article_claim": "a", "finding": "f", "status": "verified", "sources": []}]
         )
         self.assertTrue(any("require a source" in error for error in errors))
 
@@ -40,13 +42,25 @@ class ValidationTests(unittest.TestCase):
         errors = validate_claims(
             [
                 "not an object",
-                {"id": "c2", "claim": "x", "status": "contradicted", "sources": ["https://a"]},
-                {"id": "c3", "claim": "x", "status": "verified", "sources": [""]},
+                {"id": "c2", "finding": "x", "status": "contradicted", "sources": ["https://a"]},
+                {"id": "c3", "article_claim": "a", "finding": "x", "status": "verified", "sources": [""]},
+                {"id": "c4", "article_claim": "a", "status": "unverified", "sources": []},
             ]
         )
         self.assertTrue(any("must be a JSON object" in error for error in errors))
-        self.assertTrue(any("c2: contradicted claims must quote" in error for error in errors))
+        self.assertTrue(any("c2: article_claim" in error for error in errors))
         self.assertTrue(any("c3: every source" in error for error in errors))
+        self.assertTrue(any("c4: finding is required" in error for error in errors))
+
+    def test_checked_in_audit_grades_every_article_claim(self) -> None:
+        claims = load_claims(Path(__file__).resolve().parents[1] / "data" / "claims.json")
+        self.assertEqual(validate_claims(claims), [])
+        counts = Counter(claim["status"] for claim in claims)
+        # docs/analysis.html charts these counts; keep the two in step.
+        self.assertEqual(counts, {"verified": 1, "contradicted": 5, "inferred": 1, "unverified": 3})
+        chart = (Path(__file__).resolve().parents[1] / "docs" / "analysis.html").read_text(encoding="utf-8")
+        for status, count in counts.items():
+            self.assertIn(f'style="--share: {count}"><b>{count}</b><small>{status}</small>', chart)
 
     def test_valid_experiment(self) -> None:
         self.assertEqual(validate_ledger([experiment()]), [])

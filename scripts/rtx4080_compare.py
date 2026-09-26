@@ -71,7 +71,20 @@ def failed_requests(run: RunData) -> int:
 # Summary fields that define the workload. Runs that differ in any of them share
 # request ids but not prompts, arrival times or output limits, so pairing by id
 # would compare different requests.
-WORKLOAD_KEYS = ("model", "seed", "request_rate", "conversations", "turns", "max_tokens")
+# A percentile bootstrap over a handful of clusters is badly under-covered: two
+# identical 4-conversation runs on a busy GPU produced a "significant" loss.
+MIN_CLUSTERS = 20
+
+WORKLOAD_KEYS = (
+    "model",
+    "seed",
+    "request_rate",
+    "conversations",
+    "turns",
+    "max_tokens",
+    "history",
+    "output_length",
+)
 
 
 def check_comparable(baseline: RunData, candidate: RunData) -> None:
@@ -92,16 +105,29 @@ def check_comparable(baseline: RunData, candidate: RunData) -> None:
         )
 
 
+def _valid(record: dict[str, Any], *metrics: str) -> bool:
+    return record.get("error") is None and all(record.get(metric) is not None for metric in metrics)
+
+
+def same_prompt(before: dict[str, Any], after: dict[str, Any]) -> bool:
+    """False only when both runs recorded prompt hashes and they differ.
+
+    With live history a later turn embeds that run's own earlier answers, so
+    the "same" request id can carry a different prompt in each run.
+    """
+
+    left, right = before.get("prompt_sha256"), after.get("prompt_sha256")
+    return left is None or right is None or left == right
+
+
 def paired_rows(baseline: RunData, candidate: RunData, metric: str) -> list[tuple[Any, float]]:
-    """(conversation, candidate - baseline) for requests valid in both runs."""
+    """(conversation, candidate - baseline) for identical requests valid in both runs."""
 
     rows: list[tuple[Any, float]] = []
     for request_id in sorted(baseline.requests.keys() & candidate.requests.keys()):
         before = baseline.requests[request_id]
         after = candidate.requests[request_id]
-        if before.get("error") is not None or after.get("error") is not None:
-            continue
-        if before.get(metric) is None or after.get(metric) is None:
+        if not (_valid(before, metric) and _valid(after, metric) and same_prompt(before, after)):
             continue
         cluster = before.get("conversation_id", request_id)
         rows.append((cluster, float(after[metric]) - float(before[metric])))
@@ -112,6 +138,41 @@ def paired_rows(baseline: RunData, candidate: RunData, metric: str) -> list[tupl
 
 def paired_deltas(baseline: RunData, candidate: RunData, metric: str) -> list[float]:
     return [delta for _, delta in paired_rows(baseline, candidate, metric)]
+
+
+def pairing_report(baseline: RunData, candidate: RunData) -> dict[str, Any]:
+    """How many pairs are provably the same prompt, and how often outputs agree."""
+
+    shared = sorted(baseline.requests.keys() & candidate.requests.keys())
+    hashed = [
+        request_id
+        for request_id in shared
+        if baseline.requests[request_id].get("prompt_sha256")
+        and candidate.requests[request_id].get("prompt_sha256")
+    ]
+    mismatches = sum(
+        1
+        for request_id in hashed
+        if not same_prompt(baseline.requests[request_id], candidate.requests[request_id])
+    )
+    outputs = [
+        request_id
+        for request_id in shared
+        if _valid(baseline.requests[request_id], "output_text")
+        and _valid(candidate.requests[request_id], "output_text")
+        and same_prompt(baseline.requests[request_id], candidate.requests[request_id])
+    ]
+    matches = sum(
+        1
+        for request_id in outputs
+        if baseline.requests[request_id]["output_text"] == candidate.requests[request_id]["output_text"]
+    )
+    return {
+        "prompt_identity": "verified" if hashed else "not recorded",
+        "prompt_mismatches": mismatches,
+        "output_pairs": len(outputs),
+        "output_match_rate": matches / len(outputs) if outputs else None,
+    }
 
 
 def bootstrap_mean_ci(
@@ -161,6 +222,7 @@ def comparison(baseline: RunData, candidate: RunData, seed: int, samples: int) -
             "baseline": failed_requests(baseline),
             "candidate": failed_requests(candidate),
         },
+        "pairing": pairing_report(baseline, candidate),
         "metrics": {},
     }
     means: dict[str, dict[str, float]] = {}
@@ -198,30 +260,97 @@ def comparison(baseline: RunData, candidate: RunData, seed: int, samples: int) -
     return report
 
 
+def score_bootstrap(
+    baseline: RunData,
+    candidate: RunData,
+    baseline_return: RunData | None = None,
+    *,
+    samples: int = 2_000,
+    seed: int = 2025,
+) -> dict[str, Any]:
+    """Conversation bootstrap of the candidate's quoted-formula ERS change.
+
+    ERS, not either latency alone, is the objective, so this interval is the
+    gate. The reference is R0, or the R0/R0-prime midpoint when R0-prime
+    exists, which cancels drift that is linear in time. Only requests that are
+    valid in every run, and identical where hashes exist, are used.
+    """
+
+    if samples < 100:
+        raise ValueError("bootstrap samples must be at least 100")
+    runs = [baseline, candidate, *([baseline_return] if baseline_return else [])]
+    groups: dict[Any, list[list[float]]] = {}
+    for request_id in sorted(set.intersection(*(set(run.requests) for run in runs))):
+        records = [run.requests[request_id] for run in runs]
+        if not all(_valid(record, "ttft_ms", "tpot_ms") for record in records):
+            continue
+        if not all(same_prompt(records[0], record) for record in records[1:]):
+            continue
+        sums = groups.setdefault(
+            records[0].get("conversation_id", request_id), [[0.0, 0.0, 0.0] for _ in runs]
+        )
+        for run_sums, record in zip(sums, records):
+            run_sums[0] += float(record["ttft_ms"])
+            run_sums[1] += float(record["tpot_ms"])
+            run_sums[2] += 1
+    if not groups:
+        raise ValueError("no request is valid in every run")
+    clusters = list(groups.values())
+
+    def delta(picked: list[list[list[float]]]) -> float:
+        scores = []
+        for index in range(len(runs)):
+            count = sum(group[index][2] for group in picked)
+            scores.append(
+                effective_request_score(
+                    sum(group[index][0] for group in picked) / count,
+                    sum(group[index][1] for group in picked) / count,
+                )
+            )
+        reference = scores[0] if len(runs) == 2 else (scores[0] + scores[2]) / 2
+        return scores[1] - reference
+
+    rng = random.Random(seed)
+    draws = sorted(
+        delta([clusters[rng.randrange(len(clusters))] for _ in clusters]) for _ in range(samples)
+    )
+    low, high = percentile(draws, 0.025), percentile(draws, 0.975)
+    return {
+        "reference": "R0/R0-prime midpoint" if baseline_return else "R0",
+        "method": "percentile bootstrap over conversations of quoted-formula ERS from request means",
+        "n": int(sum(group[0][2] for group in clusters)),
+        "clusters": len(clusters),
+        "delta": delta(clusters),
+        "bootstrap_95ci": [low, high],
+        "direction": "gain" if low > 0 else "loss" if high < 0 else "uncertain",
+    }
+
+
 def overall_decision(
     candidate_report: dict[str, Any],
     drift_report: dict[str, Any] | None,
+    score: dict[str, Any],
 ) -> dict[str, Any]:
-    """Apply a conservative promotion gate to the statistical evidence."""
+    """Advisory promotion gate; ``promote`` is never set automatically.
 
-    warnings: list[str] = []
+    The ERS interval decides direction because the score is the objective: a
+    slower TTFT can be worth a faster TPOT. Failures, outliers, drift and
+    output agreement can only hold a candidate back.
+    """
+
+    def result(classification: str, warnings: list[str]) -> dict[str, Any]:
+        clusters = score.get("clusters")
+        if isinstance(clusters, int) and clusters < MIN_CLUSTERS:
+            warnings = [
+                *warnings,
+                f"Only {clusters} conversations: a bootstrap over so few clusters understates "
+                f"uncertainty; use at least {MIN_CLUSTERS} before reading the interval.",
+            ]
+        return {"classification": classification, "promote": False, "score": score, "warnings": warnings}
+
     if candidate_report["failures"]["candidate"] > candidate_report["failures"]["baseline"]:
-        return {
-            "classification": "reject_failures",
-            "promote": False,
-            "warnings": ["Candidate has more failed requests than baseline."],
-        }
+        return result("reject_failures", ["Candidate has more failed requests than baseline."])
 
-    directions = {
-        metric: evidence["direction"]
-        for metric, evidence in candidate_report["metrics"].items()
-    }
-    if "slower" in directions.values():
-        return {
-            "classification": "reject_slower",
-            "promote": False,
-            "warnings": ["At least one latency metric has a 95% CI entirely above zero."],
-        }
     # A mean-based "faster" that the typical paired request does not share is
     # carried by a few requests, e.g. cold-start JIT on a freshly started server.
     outlier_led = [
@@ -230,24 +359,22 @@ def overall_decision(
         if evidence["direction"] == "faster" and float(evidence["paired_delta_median"]) >= 0
     ]
     if outlier_led:
-        return {
-            "classification": "inconclusive_outlier_dominated",
-            "promote": False,
-            "warnings": [
+        return result(
+            "inconclusive_outlier_dominated",
+            [
                 "Mean paired delta is faster but the median paired delta is not for: "
                 + ", ".join(outlier_led)
-                + ". Inspect the slowest requests (cold start, tail) before attributing a gain."
+                + ". Inspect the slowest requests: a cold start is an artifact, while a real "
+                "tail improvement should persist when the first arrivals are excluded."
             ],
-        }
+        )
     if drift_report is None:
-        return {
-            "classification": "incomplete_without_baseline_return",
-            "promote": False,
-            "warnings": [
-                "No R0-prime baseline-return run was supplied; drift cannot be excluded."
-            ],
-        }
+        return result(
+            "incomplete_without_baseline_return",
+            ["No R0-prime baseline-return run was supplied; drift cannot be excluded."],
+        )
 
+    warnings: list[str] = []
     candidate_ers_delta = float(candidate_report["quoted_ers"]["delta"])
     drift_ers_delta = float(drift_report["quoted_ers"]["delta"])
     confounded_metrics: list[str] = []
@@ -262,11 +389,8 @@ def overall_decision(
             and abs(drift_delta) >= abs(candidate_delta)
         ):
             confounded_metrics.append(metric)
-
     if drift_ers_delta > 0 and drift_ers_delta >= candidate_ers_delta:
-        warnings.append(
-            "R0-prime ERS improved at least as much as the candidate versus initial R0."
-        )
+        warnings.append("R0-prime ERS improved at least as much as the candidate versus initial R0.")
     if drift_report["failures"]["candidate"] > drift_report["failures"]["baseline"]:
         warnings.append("R0-prime failed more requests than R0; the environment was not stable.")
     if confounded_metrics:
@@ -276,43 +400,29 @@ def overall_decision(
             + "."
         )
     if warnings:
-        return {
-            "classification": "inconclusive_due_to_drift",
-            "promote": False,
-            "warnings": warnings,
-        }
+        return result("inconclusive_due_to_drift", warnings)
 
-    if all(direction == "uncertain" for direction in directions.values()):
-        return {
-            "classification": "uncertain",
-            "promote": False,
-            "warnings": ["Both latency confidence intervals cross zero."],
-        }
+    if score["direction"] == "loss":
+        return result("reject_score_loss", ["Quoted-formula ERS is lower than the R0/R0-prime midpoint."])
+    if score["direction"] == "uncertain":
+        return result("uncertain", ["The ERS confidence interval crosses zero."])
 
-    # One faster metric does not make a better score: TPOT has ~32x the
-    # per-millisecond weight of TTFT near 47/4 ms. Compare B with the R0/R0'
-    # midpoint, which cancels drift that is linear in time.
-    bracketed_ers_delta = float(candidate_report["quoted_ers"]["candidate"]) - (
-        float(candidate_report["quoted_ers"]["baseline"]) + float(drift_report["quoted_ers"]["candidate"])
-    ) / 2
-    if bracketed_ers_delta <= 0:
-        return {
-            "classification": "no_score_gain",
-            "promote": False,
-            "bracketed_ers_delta": bracketed_ers_delta,
-            "warnings": [
-                "A latency metric improved, but quoted-formula ERS does not exceed the R0/R0-prime midpoint."
-            ],
-        }
-
-    return {
-        "classification": "candidate_faster_pending_correctness",
-        "promote": False,
-        "bracketed_ers_delta": bracketed_ers_delta,
-        "warnings": [
-            "Performance signal passed drift checks; correctness and repeated-block gates remain."
-        ],
-    }
+    notes: list[str] = []
+    slower = [metric for metric, evidence in candidate_report["metrics"].items() if evidence["direction"] == "slower"]
+    if slower:
+        notes.append(f"Trade-off: slower on {', '.join(slower)}; the net score still improves.")
+    pairing = candidate_report.get("pairing") or {}
+    noise = (drift_report.get("pairing") or {}).get("output_match_rate")
+    agreement = pairing.get("output_match_rate")
+    if agreement is not None and noise is not None and agreement < noise:
+        notes.append(
+            f"B's outputs match R0 on {agreement:.1%} of requests versus {noise:.1%} for R0-prime; "
+            "check correctness before trusting the speed-up."
+        )
+    if pairing.get("prompt_mismatches"):
+        notes.append(f"{pairing['prompt_mismatches']} request pairs had different prompts and were excluded.")
+    notes.append("Score gain passed drift checks; correctness and repeated-block gates remain.")
+    return result("candidate_score_gain_pending_correctness", notes)
 
 
 def main() -> int:
@@ -327,24 +437,21 @@ def main() -> int:
 
     baseline = load_run(args.baseline)
     candidate = load_run(args.candidate)
+    baseline_return = load_run(args.baseline_return) if args.baseline_return else None
     candidate_report = comparison(baseline, candidate, args.seed, args.bootstrap_samples)
-    report = {"candidate_vs_baseline": candidate_report}
-    if args.baseline_return:
-        baseline_return = load_run(args.baseline_return)
-        drift_report = comparison(
-            baseline, baseline_return, args.seed + 100, args.bootstrap_samples
-        )
+    report: dict[str, Any] = {"candidate_vs_baseline": candidate_report}
+    drift_report = None
+    if baseline_return is not None:
+        drift_report = comparison(baseline, baseline_return, args.seed + 100, args.bootstrap_samples)
         report["baseline_return_drift"] = drift_report
-        report["decision"] = overall_decision(candidate_report, drift_report)
-        report["decision_note"] = (
-            "Promote performance only when candidate improvement is larger than baseline-return "
-            "drift, confidence intervals support it, and separate correctness/stability gates pass."
-        )
-    else:
-        report["decision"] = overall_decision(candidate_report, None)
-        report["decision_note"] = (
-            "No baseline-return run supplied; performance signal is incomplete and cannot rule out drift."
-        )
+    score = score_bootstrap(
+        baseline, candidate, baseline_return, samples=args.bootstrap_samples, seed=args.seed + 200
+    )
+    report["decision"] = overall_decision(candidate_report, drift_report, score)
+    report["decision_note"] = (
+        "The ERS interval decides direction; failures, outliers, drift and output agreement can only "
+        "hold a candidate back. Correctness and repeated blocks remain human gates."
+    )
 
     rendered = json.dumps(report, indent=2)
     print(rendered)

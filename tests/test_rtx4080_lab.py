@@ -108,11 +108,17 @@ class Rtx4080LabTests(unittest.TestCase):
         ):
             rtx4080_lab.run_stage(
                 label="B-candidate", config=config, run_dir=Path(directory), port=8123,
-                startup_timeout=1, conversations=2, turns=2, rate=1.0, max_tokens=8,
-                warmup_conversations=4, seed=1,
+                startup_timeout=1,
+                shape={
+                    "conversations": 2, "turns": 2, "rate": 1.0, "max_tokens": 8,
+                    "warmup_conversations": 4, "history": "canned", "output_length": "fixed",
+                },
+                seed=1,
             )
         replay_command, allowed = next(call for call in calls if "rtx4080_replay.py" in call[0][1])
-        self.assertEqual(replay_command[replay_command.index("--warmup-conversations") + 1], "4")
+        flag = {replay_command[i]: replay_command[i + 1] for i in range(len(replay_command) - 1)}
+        self.assertEqual(flag["--warmup-conversations"], "4")
+        self.assertEqual((flag["--history"], flag["--output-length"]), ("canned", "fixed"))
         self.assertIn(rtx4080_lab.REPLAY_RECORDED_FAILURES, allowed)
         self.assertNotEqual(rtx4080_lab.REPLAY_RECORDED_FAILURES, 2)  # argparse usage errors exit 2
 
@@ -139,13 +145,24 @@ class Rtx4080LabTests(unittest.TestCase):
                 marker.write_text("abc123\n", encoding="utf-8")
                 self.assertEqual(rtx4080_manifest.source_git_state(), ("abc123", False))
 
-    def test_checked_in_candidate_changes_only_prefix_cache(self) -> None:
+    def test_checked_in_candidate_is_prefix_caching_and_its_hybrid_mode(self) -> None:
+        # On LFM2, vLLM 0.25.1 turns on "align" conv-state caching whenever
+        # prefix caching is on; the configs spell out the whole bundle.
         root = Path(__file__).resolve().parents[1]
         baseline = parse_args_file(root / "configs/vllm/rtx4080-r0.args")
         candidate = parse_args_file(root / "configs/vllm/rtx4080-prefix-cache.args")
         self.assertEqual(
             config_diff(baseline, candidate),
-            {"--enable-prefix-caching": {"baseline": None, "candidate": True}},
+            {
+                "--enable-prefix-caching": {"baseline": False, "candidate": True},
+                "--mamba-cache-mode": {"baseline": None, "candidate": "align"},
+            },
+        )
+
+    def test_negated_boolean_flags_share_the_positive_key(self) -> None:
+        self.assertEqual(
+            option_map(("--no-enable-prefix-caching", "--no-async-scheduling")),
+            {"--enable-prefix-caching": False, "--async-scheduling": False},
         )
 
 

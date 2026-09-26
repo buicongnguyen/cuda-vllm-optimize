@@ -33,8 +33,12 @@ def validate_claims(claims: list[dict[str, object]]) -> list[str]:
         status = claim.get("status")
         if status not in ALLOWED_STATUS:
             errors.append(f"{prefix}: unsupported status {status!r}")
-        if not str(claim.get("claim", "")).strip():
-            errors.append(f"{prefix}: claim text is required")
+        # `status` grades article_claim; `finding` is what the evidence shows.
+        # Keeping both explicit stops a correction being read as the verdict.
+        if not str(claim.get("article_claim", "")).strip():
+            errors.append(f"{prefix}: article_claim (the statement being graded) is required")
+        if not str(claim.get("finding", "")).strip():
+            errors.append(f"{prefix}: finding is required")
         sources = claim.get("sources", [])
         if status in {"verified", "contradicted"} and not sources:
             errors.append(f"{prefix}: {status} claims require a source")
@@ -42,6 +46,4 @@ def validate_claims(claims: list[dict[str, object]]) -> list[str]:
             errors.append(f"{prefix}: sources must be a list")
         elif not all(isinstance(source, str) and source.strip() for source in sources):
             errors.append(f"{prefix}: every source must be a non-empty string")
-        if status == "contradicted" and not str(claim.get("article_claim", "")).strip():
-            errors.append(f"{prefix}: contradicted claims must quote the article_claim they contradict")
     return errors

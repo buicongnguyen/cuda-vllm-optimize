@@ -11,10 +11,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts.rtx4080_replay import (
+    CANNED_ANSWERS,
     DEFAULT_TURNS,
     WARMUP_TURNS,
     load_turns,
     parse_sse_line,
+    prompt_digest,
     render_prompt,
     replay,
     stream_chat,
@@ -165,6 +167,7 @@ class Rtx4080ReplayTests(unittest.TestCase):
         args = argparse.Namespace(
             turn_prompts=None, turns=2, conversations=2, rate=1000.0, seed=1, base_url="http://x",
             warmup_conversations=1, timeout=5.0, model="m", max_tokens=8, aggregate="mean",
+            history="canned", output_length="fixed",
         )
         with patch.dict(sys.modules, {"httpx": fake_httpx}):
             results, summary = asyncio.run(replay(args))
@@ -179,6 +182,14 @@ class Rtx4080ReplayTests(unittest.TestCase):
         self.assertEqual((summary["conversations"], summary["turns"], summary["max_tokens"]), (2, 2, 8))
         second_turn = next(p for p in Client.payloads if p["messages"][-1]["content"] == DEFAULT_TURNS[1])
         self.assertEqual([m["role"] for m in second_turn["messages"]], ["user", "assistant", "user"])
+        # Canned history: the context is the fixed answer, not this run's "ok",
+        # so the same request id is the same prompt in every run.
+        self.assertEqual(second_turn["messages"][1]["content"], CANNED_ANSWERS[0])
+        self.assertEqual(by_id["c001-t02"].prompt_sha256, prompt_digest(second_turn["messages"]))
+        self.assertEqual(by_id["c001-t02"].output_text, "ok")
+        # Fixed length: every request decodes exactly max_tokens.
+        self.assertTrue(all(p["ignore_eos"] and p["min_tokens"] == 8 for p in Client.payloads))
+        self.assertEqual((summary["history"], summary["output_length"]), ("canned", "fixed"))
 
     def test_sse_parser_accepts_openai_data_event(self) -> None:
         event = parse_sse_line('data: {"choices":[{"delta":{"content":"hi"}}]}')

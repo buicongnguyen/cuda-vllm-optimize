@@ -1,4 +1,5 @@
 # Do not call this "official" until copied byte-for-byte from the organizer.
+# In vLLM 0.25.1 --optimization-level=3 behaves like O2, which is the default.
 LiquidAI/LFM2.5-1.2B-Instruct
 --max-model-len=8192
 --gpu-memory-utilization=0.95

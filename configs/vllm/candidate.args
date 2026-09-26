@@ -1,4 +1,8 @@
 # Candidate only. Every non-baseline line must be tested as a one-variable ablation.
+# Its one change, max-num-seqs 256 -> 96, cannot change scheduling: each
+# conversation has at most one request in flight, so any value >= 70 never
+# makes a request wait. It only shrinks the CUDA Graph capture range
+# (2 x max-num-seqs in vLLM 0.25.1) and memory reservation.
 LiquidAI/LFM2.5-1.2B-Instruct
 --max-model-len=8192
 --gpu-memory-utilization=0.95

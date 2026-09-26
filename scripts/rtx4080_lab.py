@@ -114,6 +114,10 @@ def option_map(arguments: tuple[str, ...]) -> dict[str, str | bool]:
         elif index + 1 < len(arguments) and not _is_option(arguments[index + 1]):
             normalized[token] = arguments[index + 1]
             index += 1
+        elif token.startswith("--no-"):
+            # argparse BooleanOptionalAction: --no-X sets X to False, so the
+            # diff reads "--X: False -> True" instead of two unrelated keys.
+            normalized["--" + token[len("--no-"):]] = False
         else:
             normalized[token] = True
         index += 1
@@ -328,11 +332,7 @@ def run_stage(
     run_dir: Path,
     port: int,
     startup_timeout: float,
-    conversations: int,
-    turns: int,
-    rate: float,
-    max_tokens: int,
-    warmup_conversations: int,
+    shape: dict[str, Any],
     seed: int,
 ) -> Path:
     base_url = f"http://127.0.0.1:{port}"
@@ -357,18 +357,15 @@ def run_stage(
                 base_url,
                 "--model",
                 config.model,
-                "--conversations",
-                str(conversations),
-                "--turns",
-                str(turns),
-                "--rate",
-                str(rate),
                 "--seed",
                 str(seed),
-                "--max-tokens",
-                str(max_tokens),
-                "--warmup-conversations",
-                str(warmup_conversations),
+                # Every shape key becomes a replay flag, so the recorded plan
+                # and the executed workload cannot drift apart.
+                *(
+                    part
+                    for key, value in shape.items()
+                    for part in (f"--{key.replace('_', '-')}", str(value))
+                ),
                 "--output",
                 str(output),
             ],
@@ -392,6 +389,7 @@ def execute_run(args: argparse.Namespace) -> int:
     run_dir = experiment_directory(args.output_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
 
+    pairing = {"history": args.history, "output_length": args.output_length}
     if args.mode == "smoke":
         shape = {
             "conversations": 2,
@@ -399,6 +397,7 @@ def execute_run(args: argparse.Namespace) -> int:
             "rate": 1.0,
             "max_tokens": 16,
             "warmup_conversations": min(args.warmup_conversations, 1),
+            **pairing,
         }
         stages = [("R0-smoke", baseline)]
     else:
@@ -408,6 +407,7 @@ def execute_run(args: argparse.Namespace) -> int:
             "rate": args.rate,
             "max_tokens": args.max_tokens,
             "warmup_conversations": args.warmup_conversations,
+            **pairing,
         }
         if args.mode == "baseline":
             stages = [("R0-baseline", baseline)]
@@ -448,11 +448,7 @@ def execute_run(args: argparse.Namespace) -> int:
             run_dir=run_dir,
             port=args.port,
             startup_timeout=args.startup_timeout,
-            conversations=shape["conversations"],
-            turns=shape["turns"],
-            rate=shape["rate"],
-            max_tokens=shape["max_tokens"],
-            warmup_conversations=shape["warmup_conversations"],
+            shape=shape,
             seed=args.seed,
         )
 
@@ -507,6 +503,18 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=4,
         help="unrecorded warm-up conversations per server before measurement (0 disables)",
+    )
+    run.add_argument(
+        "--history",
+        choices=("canned", "live"),
+        default="canned",
+        help="canned keeps prompts identical across stages so requests pair exactly",
+    )
+    run.add_argument(
+        "--output-length",
+        choices=("fixed", "natural"),
+        default="fixed",
+        help="fixed decodes exactly --max-tokens per request (same TPOT denominator)",
     )
     run.add_argument("--seed", type=int, default=2025)
     run.add_argument("--dry-run", action="store_true")

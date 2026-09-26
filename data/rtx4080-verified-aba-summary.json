@@ -65,15 +65,31 @@
       "R0_prime": {"mean_ttft_ms": 16.949, "mean_tpot_ms": 3.964, "ers_from_quoted_formula": 70.727}
     },
     "paired_excluding_first_10_arrivals": {
+      "bootstrap": "percentile, resampling whole conversations; 2,000 resamples; seed 2025 (TTFT), 2026 (TPOT)",
       "R0_prime_minus_R0": {
-        "ttft_ms": {"n": 410, "mean": -0.308, "bootstrap_95ci": [-0.761, 0.026], "direction": "uncertain"},
-        "tpot_ms": {"n": 410, "mean": 0.002, "bootstrap_95ci": [-0.033, 0.023], "direction": "uncertain"}
+        "ttft_ms": {"n": 410, "mean": -0.308, "bootstrap_95ci": [-0.711, 0.004], "direction": "uncertain"},
+        "tpot_ms": {"n": 410, "mean": 0.002, "bootstrap_95ci": [-0.03, 0.022], "direction": "uncertain"}
       },
       "B_minus_R0": {
-        "ttft_ms": {"n": 410, "mean": 0.666, "bootstrap_95ci": [0.099, 1.124], "direction": "slower"},
-        "tpot_ms": {"n": 410, "mean": -0.045, "bootstrap_95ci": [-0.083, -0.018], "direction": "faster"}
+        "ttft_ms": {"n": 410, "mean": 0.666, "bootstrap_95ci": [0.27, 1.001], "direction": "slower"},
+        "tpot_ms": {"n": 410, "mean": -0.045, "bootstrap_95ci": [-0.085, -0.019], "direction": "faster"}
+      },
+      "B_minus_R0_prime": {
+        "ttft_ms": {"n": 410, "mean": 0.973, "bootstrap_95ci": [0.702, 1.243], "direction": "slower"},
+        "tpot_ms": {"n": 410, "mean": -0.048, "bootstrap_95ci": [-0.061, -0.034], "direction": "faster"}
       }
     },
+    "score_gate_excluding_first_10_arrivals": {
+      "delta_ers_vs_R0_R0_prime_midpoint": 0.142,
+      "bootstrap_95ci": [-0.021, 0.355],
+      "direction": "uncertain",
+      "method": "percentile bootstrap over 70 conversations, 2,000 resamples, seed 2225"
+    },
+    "caveats": [
+      "No drift was detected, but the R0-prime minus R0 TTFT CI still allows about 0.7 ms of drift, so the TTFT verdict rests on B being slower than both R0 and R0-prime.",
+      "The block used live history, so only turn-1 requests carried byte-identical prompts across stages.",
+      "Prefix caching on this hybrid model also switched the conv-state cache to align mode; the turn-1 TTFT penalty, where nothing can be reused, may come from align mode rather than caching."
+    ],
     "median_ttft_ms_by_turn": {
       "R0": {"1": 13.54, "2": 12.86, "3": 16.13, "4": 17.1, "5": 19.47, "6": 22.06},
       "B_prefix_cache": {"1": 16.61, "2": 16.91, "3": 18.19, "4": 18.17, "5": 17.96, "6": 18.99},
@@ -84,7 +100,7 @@
     "classification_as_published": "inconclusive_due_to_drift",
     "classification_with_fixed_compare": "inconclusive_outlier_dominated",
     "promote": false,
-    "reason": "The apparent B gain and the apparent R0-to-R0-prime drift both came from cold-start JIT in the first five requests of R0. Without them the baseline did not drift, prefix caching made TTFT about 0.7 ms slower overall (slower on turns 1-4, faster on turns 5-6) and TPOT about 0.05 ms faster, for a net quoted-formula change near +0.2 ERS. Under the repo gate a TTFT CI entirely above zero is reject_slower, but the cutoff is post hoc.",
+    "reason": "The apparent B gain and the apparent R0-to-R0-prime drift both came from cold-start JIT in the first five requests of R0. Without them no drift was detected, prefix caching made TTFT slower than both R0 and R0-prime (slower on turns 1-4, faster on turns 5-6) and TPOT marginally faster in the tail, and the score gate puts the quoted-formula ERS change at +0.14 with a CI crossing zero: uncertain. The cutoff is post hoc.",
     "next": "Rerun R0/B/R0-prime with the warm-up harness on an otherwise idle GPU before deciding."
   }
 }

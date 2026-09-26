@@ -54,7 +54,7 @@ spec decode là có ích. Repo này nâng chúng thành ledger có parent/config
 | 10 attention + 6 ShortConv | Model card ghi 10 convolution + 6 GQA | Sửa layer count; tính lại ưu tiên kernel |
 | 47 ms, 4 ms ≈ 42 ERS | Công thức trong bài cho 63.1851, gần đúng mốc “sau tuning ~63” | Xác nhận cặp latency bị gắn nhãn sai hay công thức/aggregation khác |
 | GPU compute “thực sự” 0.017 ms | Đây là `FLOP / peak FLOPS`, chỉ là lower bound | Đo kernel duration/occupancy bằng Nsight; gọi đây là roofline estimate |
-| Weight load 0.6 GB ở FP8 | 1.17B tham số FP8 đã xấp xỉ 1.17 GB, chưa kể scale/metadata | Giải thích byte count hoặc lấy DRAM counters |
+| Weight load 0.6 GB ở FP8 | Online FP8 chỉ quantize Linear: ≈1.04 GB FP8 + 0.27 GB lm_head BF16 (tied) ≈ 1.30 GB mỗi step; bandwidth `1g.18gb` là 1/8 của 4.8 TB/s, không phải 1/7 | Sàn TPOT ≈ 2.17 ms; đối chiếu bằng DRAM counters |
 | Spec decode hỏng chỉ vì rollback state | Issue #49112 cho thấy thêm lỗi multi-KV-group/metadata ở draft path | Mô tả failure theo từng version/PR và stack trace |
 | Cần acceptance ≥90% | Không có ngưỡng phổ quát | Dùng break-even model theo draft/verify cost và accepted tokens |
 | O3 luôn +2% | Current docs nói O3 hiện tương đương O2; version cũ có thể khác | Pin commit và báo A/B trên đúng image |
@@ -76,9 +76,13 @@ Bảng 0.017 + 0.88 + 0.5 + 0.3 + 1.6 + 0.7 ms trộn bốn loại đại lượ
 - wall-clock frontend/scheduler/network.
 
 Các phần này có thể overlap, được amortize theo batch, hoặc đã nằm trong CUDA
-Graph. Cộng chúng thành 100% tạo cảm giác chính xác giả. Với khoảng 70 sequence
-đang decode, weight traffic được amortize trên cả batch; phép tính weight-load
-“mỗi request” sẽ sai nếu không nêu mẫu số.
+Graph. Cộng chúng thành 100% tạo cảm giác chính xác giả. Weight traffic được
+amortize trên số sequence đang decode cùng lúc, nên phép tính weight-load “mỗi
+request” sẽ sai nếu không nêu mẫu số — và mẫu số đó không phải 70. Do causality,
+mỗi conversation có tối đa một request đang chạy, nên 70 chỉ là trần; theo
+Little's law, số request đang chạy trung bình là λ × latency. Ở λ = 7 req/s giả
+định, replay trên RTX 4080 đo được trung bình 1.7–1.8 request đang chạy (đỉnh
+8–11); log vLLM ghi `Waiting: 0` và KV cache usage dưới 0.2%.
 
 Đo đúng cần hai view đồng bộ:
 
@@ -91,7 +95,8 @@ Sau đó phân tách theo prefill/decode, cold/warm, batch size và conversation
 
 ### TTFT không chỉ là prefill
 
-TTFT gồm queueing + tokenize + scheduling + prefill + first decode + streaming.
+TTFT gồm queueing + tokenize + scheduling + prefill (forward pass prefill sample
+luôn token đầu tiên, không có “first decode” riêng) + detokenize + streaming.
 Trong arrival Poisson, queueing và interference với active decodes có thể lớn hơn
 tokenizer 0.2 ms. Prefix caching chỉ giúp nếu prompt turns thật sự lặp đúng token
 prefix và cache chưa bị evict. Cần báo hit rate theo turn 1..6.
@@ -123,10 +128,13 @@ Quy trình đúng:
 
 ### Config tuning
 
-Đúng để bắt đầu, nhưng `max-num-seqs=256` không mặc nhiên tốt khi chỉ có 70 hội
-thoại. Sau khi đủ chứa active set, giá trị lớn hơn có thể chỉ tăng state/graph
-surface. `max-num-batched-tokens=8192` chủ yếu điều khiển prefill budget; phải
-được tune cùng chunked prefill và decode priority, không độc lập.
+Đúng để bắt đầu. Vì mỗi conversation có tối đa một request đang chạy, mọi
+`max-num-seqs` ≥ 70 xếp lịch giống hệt nhau: 80, 96 hay 256 không bao giờ làm
+request phải chờ. Khác biệt chỉ nằm ở phần phụ thuộc giá trị này, như dải CUDA
+Graph capture (vLLM 0.25.1 capture tới 2 × `max-num-seqs`) và memory reservation.
+`max-num-batched-tokens=8192` chủ yếu điều khiển prefill budget; phải được tune
+cùng chunked prefill và decode priority, và chỉ có tác dụng khi đủ nhiều prompt
+đến cùng lúc để chạm budget.
 
 FP8 weights/KV phải qua quality gate. KV FP8 tăng capacity, nhưng capacity chưa
 chắc là bottleneck với model 1.2B và context thực tế. Đừng suy từ “ít bộ nhớ hơn”
@@ -139,9 +147,12 @@ Quyết định dừng hướng này trong một contest một tuần là hợp 
 version/PR đã thử chưa được vLLM hỗ trợ end-to-end, và kết quả ERS 36 không có
 breakdown acceptance/draft/verify nên chưa chỉ ra một nguyên nhân duy nhất.
 
-N-gram 22/30 A/B match cũng chưa phải correctness test đủ chặt. Với greedy decode,
-output phải khớp token-for-token; với sampling, phải kiểm tra phân phối hoặc dùng
-deterministic RNG semantics tương thích.
+N-gram 22/30 A/B match cũng chưa phải correctness test đủ chặt, nhưng đòi khớp
+token-for-token cũng sai theo hướng ngược lại: vLLM không batch-invariant, nên
+cùng một config greedy chạy hai lần (R0 và R0′) cũng có thể lệch token khi batch
+khác nhau. Chuẩn đúng là so tỷ lệ khớp B↔R0 với tỷ lệ khớp R0′↔R0 trên cùng prompt
+(noise của chính baseline), cộng task metric có tolerance; exact match chỉ là
+gate khi chạy ở chế độ batch-invariant. Với sampling, phải kiểm tra phân phối.
 
 ### Kernel fusion
 

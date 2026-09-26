@@ -121,10 +121,10 @@ wsl -d Ubuntu-22.04 -- nvidia-smi
                 <table>
                   <thead><tr><th>Work item</th><th>RTX 4080S làm được?</th><th>Kết luận được phép</th></tr></thead>
                   <tbody>
-                    <tr><td>vLLM request lifecycle, 70 × 6 causal turns</td><td><span class="evidence verified">Có</span></td><td>Harness và semantics hoạt động.</td></tr>
-                    <tr><td>TTFT/TPOT A/B trên cùng máy</td><td><span class="evidence verified">Có</span></td><td>Candidate local thắng/thua với noise đã đo.</td></tr>
-                    <tr><td>CUDA Graph, prefix cache, scheduler, FP8</td><td><span class="evidence verified">Có</span></td><td>Feature có chạy và tác động local.</td></tr>
-                    <tr><td>Triton correctness và SM89 tuning</td><td><span class="evidence verified">Có</span></td><td>Kernel đúng và nhanh trên Ada SM89.</td></tr>
+                    <tr><td>vLLM request lifecycle, 70 × 6 causal turns</td><td><span class="evidence verified">Có · đã chạy</span></td><td>Harness và semantics hoạt động.</td></tr>
+                    <tr><td>TTFT/TPOT A/B trên cùng máy</td><td><span class="evidence verified">Có · đã chạy</span></td><td>Candidate local thắng/thua với noise đã đo.</td></tr>
+                    <tr><td>CUDA Graph, prefix cache, scheduler, FP8</td><td><span class="evidence derived">Một phần</span></td><td>Đã chạy: CUDA Graph mặc định và prefix cache. Chưa chạy: scheduler A/B và FP8 — FP8 KV trên SM89 có thể cần backend FlashInfer JIT (đòi <code>nvcc</code>), setup hiện tránh path này.</td></tr>
+                    <tr><td>Triton correctness và SM89 tuning</td><td><span class="evidence derived">Có thể · chưa chạy</span></td><td>Kernel đúng và nhanh trên Ada SM89, sau khi làm.</td></tr>
                     <tr><td>H200 MIG TTFT/TPOT hoặc contest ERS</td><td><span class="evidence unknown">Không</span></td><td>Không extrapolate số tuyệt đối.</td></tr>
                   </tbody>
                 </table>
@@ -150,7 +150,7 @@ wsl -d Ubuntu-22.04 -- nvidia-smi
                   <div class="aba-bar-row"><b>B</b><span style="--w:99.6%"></span><em>70.184</em></div>
                   <div class="aba-bar-row"><b>R0′</b><span style="--w:100%"></span><em>70.460</em></div>
                 </div>
-                <div class="aba-verdict"><b>DO NOT PROMOTE</b><span>Bỏ 10 arrivals đầu (post hoc): R0′−R0 TTFT −0.31 ms, CI qua 0 → không có drift thật. B−R0 TTFT +0.67 ms [0.10, 1.12] → slower (chậm hơn ở turns 1–4, nhanh hơn ở turns 5–6); TPOT −0.045 ms; ERS chỉ ≈ +0.2. Harness nay warm-up trước khi đo; cần chạy lại block trên GPU rảnh.</span></div>
+                <div class="aba-verdict"><b>DO NOT PROMOTE</b><span>Bỏ 10 arrivals đầu (post hoc): không phát hiện drift (R0′−R0 TTFT −0.31 ms, CI [−0.71, +0.004]). B chậm hơn cả R0 (+0.67 ms [0.27, 1.00]) lẫn R0′ (+0.97 ms [0.70, 1.24]) về TTFT, chậm ở turns 1–4 và nhanh ở turns 5–6; ΔERS so với trung điểm R0/R0′ = +0.14 [−0.02, +0.36] → uncertain. Harness nay warm-up, giữ prompt giống hệt giữa các stage và quyết định bằng CI của ΔERS; cần chạy lại block trên GPU rảnh.</span></div>
                 <p class="chart-note"><span>Local emulator, seed 2025, λ assumed 7 req/s. Fixed compare script: <code>inconclusive_outlier_dominated</code>.</span><a href="https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/data/rtx4080-verified-aba-summary.json">Machine-readable summary ↗</a></p>
               </figure>
               <div class="logic-review">
@@ -322,9 +322,9 @@ tpot_ms = (last_token - first_token) * 1000 / (completion_tokens - 1)</code></pr
                 <table>
                   <thead><tr><th>Run</th><th>One change</th><th>Server delta</th><th>Kill criterion</th></tr></thead>
                   <tbody>
-                    <tr><td>R0</td><td>BF16/default baseline</td><td>Không thêm flag</td><td>420/420 thành công</td></tr>
-                    <tr><td>R1</td><td>Prefix cache</td><td><code>--enable-prefix-caching</code></td><td>Crash, quality mismatch hoặc ERS giảm ngoài noise</td></tr>
-                    <tr><td>R2</td><td>CUDA Graph off</td><td><code>--enforce-eager</code></td><td>Dùng để định lượng graph benefit, không promote nếu chậm</td></tr>
+                    <tr><td>R0</td><td>BF16/default baseline</td><td><code>rtx4080-r0.args</code> (prefix caching tắt tường minh)</td><td>420/420 thành công</td></tr>
+                    <tr><td>R1</td><td>Prefix cache (bundle trên hybrid)</td><td><code>--enable-prefix-caching --mamba-cache-mode=align</code></td><td>Crash, quality mismatch hoặc ΔERS CI dưới 0</td></tr>
+                    <tr><td>R2</td><td>CUDA Graph off</td><td><code>-cc.cudagraph_mode=NONE</code> (không dùng <code>--enforce-eager</code>: flag đó tắt cả torch.compile)</td><td>Dùng để định lượng graph benefit, không promote nếu chậm</td></tr>
                     <tr><td>R3</td><td>Weight FP8</td><td><code>--quantization fp8</code></td><td>OOM load, quality fail hoặc TPOT regression</td></tr>
                     <tr><td>R4</td><td>KV FP8</td><td><code>--kv-cache-dtype fp8</code></td><td>Quality fail hoặc capacity gain không dùng được</td></tr>
                     <tr><td>R5</td><td>Batch token budget</td><td><code>--max-num-batched-tokens 8192</code></td><td>TTFT/tail regression lớn hơn TPOT gain</td></tr>
@@ -343,7 +343,7 @@ python scripts/rtx4080_lab.py run --mode aba
 python scripts/rtx4080_lab.py run --mode aba \
   --candidate-config configs/vllm/my-one-change.args</code></pre>
               <h3>Paired statistics + drift guard</h3>
-              <p>Orchestrator tự giữ cùng seed/workload, chạy từng server riêng rồi xuất mean/median/p95/p99, bootstrap 95% CI, faster/slower/uncertain, ΔERS và R0→R0′ drift. Một metric “faster” theo mean mà median paired delta không âm được xếp <code>inconclusive_outlier_dominated</code>: gain đó chỉ do vài request mang lại. <code>experiment-plan.json</code> ghi exact command và chứng minh candidate mặc định chỉ thêm prefix caching.</p>
+              <p>Orchestrator tự giữ cùng seed/workload, chạy từng server riêng rồi xuất mean/median/p95/p99, bootstrap 95% CI (resample theo conversation), faster/slower/uncertain, ΔERS và R0→R0′ drift. Quyết định dựa trên CI của ΔERS so với trung điểm R0/R0′ (bootstrap theo conversation); từng latency metric là chẩn đoán, metric chậm hơn được ghi là trade-off. Một metric “faster” theo mean mà median paired delta không âm được xếp <code>inconclusive_outlier_dominated</code>. Replay mặc định dùng canned history và fixed output length, ghi <code>prompt_sha256</code>, nên mỗi request là cùng một prompt ở cả ba stage. <code>experiment-plan.json</code> ghi exact command và diff của candidate: prefix caching cùng mode <code>align</code> mà vLLM bật kèm cho model hybrid.</p>
               <p class="run-note">LFM2 là model hybrid có inner state; behavior cache có thể đổi theo vLLM version. Vì vậy config pin 0.25.1 và candidate phải qua smoke/correctness gate trước khi diễn giải performance.</p>
               <div class="logic-review">
                 <div class="logic-head"><span>LOGIC REVIEW 05</span><b>Candidate thắng thật hay chỉ trúng noise?</b></div>
@@ -373,19 +373,27 @@ python scripts/rtx4080_lab.py run --mode aba \
               </figure>
               <h3>A. Nsight Systems: server timeline</h3>
               <pre><code># Terminal A — profile đúng R0 server; lệnh serve lấy từ config đã pin.
-# Flags theo vLLM profiling guide: theo dõi EngineCore child process và
-# tách node trong CUDA Graph thay vì một graph launch mờ.
+# Flags theo vLLM profiling guide: theo dõi EngineCore child process, tách node
+# trong CUDA Graph, và chỉ capture giữa /start_profile và /stop_profile để
+# model load, compile và graph capture không lấp đầy report.
 export VLLM_USE_FLASHINFER_SAMPLER=0
 nsys profile --trace=cuda,nvtx,osrt --sample=none \
   --trace-fork-before-exec=true --cuda-graph-trace=node \
+  --capture-range=cudaProfilerApi --capture-range-end=repeat \
   --output=results/rtx4080/R0-systems --force-overwrite=true \
-  $(python scripts/rtx4080_lab.py command --config configs/vllm/rtx4080-r0.args)
+  $(python scripts/rtx4080_lab.py command --config configs/vllm/rtx4080-r0.args) \
+  --profiler-config.profiler cuda
 
-# Terminal B — replay nhỏ đại diện; warm-up mặc định chạy trước khi đo
-python scripts/rtx4080_replay.py --conversations 8 --turns 2 \
-  --rate 2 --max-tokens 32 --output results/rtx4080/profile-replay.jsonl
+# Terminal B — warm-up ngoài cửa sổ capture, rồi chỉ capture replay đại diện
+python scripts/rtx4080_replay.py --conversations 4 --turns 2 --rate 2 \
+  --warmup-conversations 0 --output results/rtx4080/profile-warmup.jsonl
+curl -X POST http://127.0.0.1:8000/start_profile
+python scripts/rtx4080_replay.py --conversations 8 --turns 2 --rate 2 \
+  --max-tokens 32 --warmup-conversations 0 \
+  --output results/rtx4080/profile-replay.jsonl
+curl -X POST http://127.0.0.1:8000/stop_profile
 
-# Dừng server sau capture, rồi đọc summary
+# Dừng server (Ctrl-C ở Terminal A) để nsys ghi report, rồi đọc summary
 nsys stats results/rtx4080/R0-systems.nsys-rep</code></pre>
               <h3>B. Nsight Compute: chỉ kernel đã chọn</h3>
               <pre><code># Lấy exact kernel name từ Systems trước.
@@ -463,7 +471,7 @@ torch.testing.assert_close(actual_state, reference_state, rtol=..., atol=...)</c
               <span class="run-index">08 / PROMOTION GATE</span>
               <h2>Khi nào một candidate được đi tiếp?</h2>
               <div class="promotion-grid">
-                <div><span>1</span><b>Correctness</b><p>Greedy output/state match trong tolerance; 420/420 requests hợp lệ.</p></div>
+                <div><span>1</span><b>Correctness</b><p>Output khớp R0 ít nhất như R0′ khớp R0 (<code>output_match_rate</code>); task metric trong tolerance; 420/420 requests hợp lệ.</p></div>
                 <div><span>2</span><b>Repeatability</b><p>Gain lớn hơn noise qua ít nhất A/B/A; clocks và thermal state được ghi.</p></div>
                 <div><span>3</span><b>Causal evidence</b><p>Timeline/counter giải thích được gain; không chỉ leaderboard movement.</p></div>
                 <div><span>4</span><b>Target retest</b><p>SM90/MIG chạy lại correctness, autotune và end-to-end before contest submit.</p></div>

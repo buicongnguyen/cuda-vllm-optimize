@@ -28,8 +28,12 @@ truth.
   bật. vLLM issue #49112 chỉ ra draft model cần nhiều KV-cache group trong khi
   proposer vẫn giả định một group/`AttentionMetadata`.
 - Kernel fusion có giá trị học thuật và có thể có giá trị thực tế, nhưng chỉ nên
-  viết sau khi Nsight Systems chứng minh kernels vẫn được launch rời bên ngoài
-  CUDA Graph/compile fusion và chiếm phần đủ lớn của critical path.
+  viết sau khi Nsight chứng minh kernel đó chưa được compile-fuse và chiếm phần đủ
+  lớn của critical path. Trong CUDA Graph, fusion không còn tiết kiệm launch
+  nhưng vẫn có thể giảm memory traffic.
+- Trên H200 MIG `1g.18gb`, mỗi decode step đọc khoảng 1.3 GB weights (FP8 Linear +
+  lm_head BF16) trên ~0.6 TB/s, nên TPOT khó xuống dưới ~2.17 ms. Theo công thức
+  được trích, điểm trên khoảng 85–88 ERS cần sinh nhiều hơn một token mỗi step.
 
 Đọc bản web tại [technical audit](https://buicongnguyen.github.io/cuda-vllm-optimize/analysis.html),
 [decision flow](https://buicongnguyen.github.io/cuda-vllm-optimize/decision-flow.html),
@@ -76,9 +80,10 @@ Ba lệnh tương ứng kiểm tra cài đặt, chạy workload 70 × 6 và ch�
 R0/B/R0′ có bootstrap CI + drift guard. Full block đã pass 1,260/1,260
 requests trên máy này và prefix cache không được promote. Phân tích lại raw data
 cho thấy “gain” và “drift” ban đầu đều đến từ năm request cold-start (Triton JIT
-trên server vừa khởi động). Bỏ chúng đi, baseline không drift và prefix cache làm
-TTFT chậm hơn khoảng 0.7 ms. Harness nay warm-up trước khi đo; block cần được chạy
-lại. Setup tự pin vLLM 0.25.1, model
+trên server vừa khởi động). Bỏ chúng đi thì không phát hiện drift, prefix cache làm
+TTFT chậm hơn cả R0 lẫn R0′ (khoảng 0.7–1 ms) và ΔERS là uncertain. Harness nay
+warm-up trước khi đo, giữ prompt giống hệt giữa các stage và quyết định bằng CI
+của ΔERS; block cần được chạy lại. Setup tự pin vLLM 0.25.1, model
 revision, Python 3.12, mirror code vào WSL ext4 và lưu raw evidence. Xem
 [hướng dẫn GitHub đầy đủ](RTX4080_RUNBOOK.md) trước khi diễn giải điểm: đây là
 method reproduction trên SM89, không phải H200 MIG score equivalence.

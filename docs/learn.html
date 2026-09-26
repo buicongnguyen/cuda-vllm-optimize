@@ -161,7 +161,7 @@ curl http://localhost:8000/v1/chat/completions \
                 <h2>Metrics: TTFT, TPOT và throughput</h2>
                 <p>Không tối ưu một từ viết tắt trước khi định nghĩa chính xác hai timestamp tạo ra nó. Luôn hỏi unit, aggregation, warm-up, percentile và client/server clock.</p>
                 <div class="term-grid">
-                  <div class="term-card"><h3>TTFT</h3><p>Time To First Token: submit → token đầu. Gồm queue, tokenize, prefill và first decode.</p></div>
+                  <div class="term-card"><h3>TTFT</h3><p>Time To First Token: submit → token đầu. Gồm queue, tokenize, prefill (forward pass prefill sample luôn token đầu), detokenize và stream.</p></div>
                   <div class="term-card"><h3>TPOT</h3><p>Time Per Output Token: thường là (last−first)/(N−1). Phải xác nhận evaluator.</p></div>
                   <div class="term-card"><h3>ITL</h3><p>Inter-Token Latency: khoảng cách giữa từng token; cho thấy jitter mà mean TPOT che mất.</p></div>
                   <div class="term-card"><h3>Throughput</h3><p>Tokens hoặc requests mỗi giây của cả hệ thống; có thể tăng trong khi latency một user xấu đi.</p></div>
@@ -299,24 +299,37 @@ PY</code></pre>
                   <div class="lab-body">
                     <pre><code>import torch
 
-x = torch.randn(4096, 4096, device="cuda")
+def step(t):            # 100 kernel nhỏ: launch-bound, giống decode ở batch nhỏ
+    for _ in range(50):
+        t = t * 1.0001 + 0.0001
+    return t
+
+x = torch.randn(1024, device="cuda")
 static_x = torch.empty_like(x)
 side = torch.cuda.Stream()
 side.wait_stream(torch.cuda.current_stream())
-with torch.cuda.stream(side):
+with torch.cuda.stream(side):                # warm-up ngoài capture
     for _ in range(3):
-        static_y = torch.sin(static_x) * 2
+        static_y = step(static_x)
 torch.cuda.current_stream().wait_stream(side)
 
 graph = torch.cuda.CUDAGraph()
 with torch.cuda.graph(graph):
-    static_y = torch.sin(static_x) * 2
+    static_y = step(static_x)
 
-static_x.copy_(x)       # địa chỉ input phải ổn định
-graph.replay()
-torch.cuda.synchronize()
-torch.testing.assert_close(static_y, torch.sin(x) * 2)</code></pre>
-                    <p class="lab-warning">Đo nhiều replay sau warm-up bằng CUDA events hoặc <code>torch.utils.benchmark</code>; không đặt <code>synchronize()</code> giữa từng operator. Với vLLM, A/B <code>--enforce-eager</code> và graph mode trên cùng workload, đồng thời ghi capture sizes/fallbacks.</p>
+def ms_per_call(fn, iters=200):
+    start, end = (torch.cuda.Event(enable_timing=True) for _ in range(2))
+    fn(); torch.cuda.synchronize()
+    start.record()
+    for _ in range(iters):
+        fn()
+    end.record(); torch.cuda.synchronize()
+    return start.elapsed_time(end) / iters
+
+static_x.copy_(x)                            # địa chỉ input phải ổn định
+print(f"eager {ms_per_call(lambda: step(x)):.3f} ms | graph {ms_per_call(graph.replay):.3f} ms")
+torch.testing.assert_close(static_y, step(x))</code></pre>
+                    <p class="lab-warning">Graph chỉ thắng rõ khi work là nhiều kernel nhỏ; một kernel lớn, bandwidth-bound sẽ gần như không đổi. Đo nhiều replay sau warm-up bằng CUDA events; không đặt <code>synchronize()</code> giữa từng operator. Với vLLM, A/B <code>-cc.cudagraph_mode=NONE</code> với mặc định trên cùng workload — <code>--enforce-eager</code> tắt cả torch.compile lẫn CUDA Graph nên là hai thay đổi — đồng thời ghi capture sizes/fallbacks.</p>
                     <div class="lab-grid">
                       <div><b>Observe</b><span>graph giảm host launch work; kernel duration có thể không đổi.</span></div>
                       <div><b>Save</b><span>timeline eager và graph, shape/batch đã capture.</span></div>
@@ -349,21 +362,28 @@ torch.testing.assert_close(static_y, torch.sin(x) * 2)</code></pre>
                 <details class="hands-on">
                   <summary><span>CODE LAB 05</span> Gắn NVTX, capture timeline, rồi zoom vào kernel</summary>
                   <div class="lab-body">
-                    <pre><code># profile_offline.py — NVTX phải nằm trong process tree launch GPU work.
+                    <pre><code># profile_offline.py — NVTX phải ở cùng process launch GPU work.
 # HTTP replay client không launch CUDA kernel, nên profile client sẽ không thấy GPU.
 import torch
 from vllm import LLM, SamplingParams
 
-llm = LLM("LiquidAI/LFM2.5-1.2B-Instruct",
-          revision="868df74dd56ff8a0c2ac5dbf281690c2dbebe4c9", max_model_len=4096)
-params = SamplingParams(temperature=0, max_tokens=64)
-llm.generate(["Warm-up: name three primes."] * 8, params)  # JIT ngoài range đo
-torch.cuda.nvtx.range_push("warm_decode_batch")
-llm.generate([f"Explain KV cache, variant {i}." for i in range(64)], params)
-torch.cuda.nvtx.range_pop()
+def main() -> None:
+    llm = LLM("LiquidAI/LFM2.5-1.2B-Instruct",
+              revision="868df74dd56ff8a0c2ac5dbf281690c2dbebe4c9", max_model_len=4096)
+    params = SamplingParams(temperature=0, max_tokens=64)
+    llm.generate(["Warm-up: name three primes."] * 8, params)  # JIT ngoài range đo
+    torch.cuda.nvtx.range_push("warm_decode_batch")
+    llm.generate([f"Explain KV cache, variant {i}." for i in range(64)], params)
+    torch.cuda.nvtx.range_pop()
 
-# Timeline toàn hệ thống; flags theo vLLM profiling guide:
-# theo dõi EngineCore child process và tách từng node trong CUDA Graph.
+if __name__ == "__main__":   # bắt buộc khi worker được spawn
+    main()
+
+# Engine chạy in-process (VLLM_ENABLE_V1_MULTIPROCESSING=0) để NVTX range của
+# script project được lên kernels; mặc định EngineCore là child process riêng.
+# Flags nsys theo vLLM profiling guide: theo dõi child processes và tách từng
+# node trong CUDA Graph.
+VLLM_ENABLE_V1_MULTIPROCESSING=0 VLLM_WORKER_MULTIPROC_METHOD=spawn \
 VLLM_USE_FLASHINFER_SAMPLER=0 nsys profile -t cuda,nvtx,osrt \
   --trace-fork-before-exec=true --cuda-graph-trace=node \
   -o traces/lfm --force-overwrite=true python profile_offline.py
@@ -435,7 +455,7 @@ vllm bench serve --backend openai-chat --endpoint /v1/chat/completions \
                   <div class="term-card"><h3>W8A8</h3><p>Weights và activations 8-bit; performance phụ thuộc fused GEMM path thật sự được chọn.</p></div>
                   <div class="term-card"><h3>KV FP8</h3><p>Giảm khoảng một nửa attention cache bytes; capacity thường là lợi ích đầu tiên.</p></div>
                   <div class="term-card"><h3>Scale calibration</h3><p>Chọn scale từ data để giảm clipping/underflow thay vì dùng mặc định mù quáng.</p></div>
-                  <div class="term-card"><h3>Quality gate</h3><p>Exact greedy tokens hoặc task metric/tolerance xác định optimization còn hợp lệ.</p></div>
+                  <div class="term-card"><h3>Quality gate</h3><p>Task metric/tolerance, và tỷ lệ output khớp B↔R0 không thấp hơn R0′↔R0 trên cùng prompt. vLLM không batch-invariant nên hai run greedy có thể lệch token dù không có bug.</p></div>
                 </div>
                 <div class="lesson-gate"><strong>Gate:</strong> A/B weights FP8 và KV FP8 riêng; báo memory, latency và quality như ba outcomes độc lập.</div>
                 <details class="hands-on">
@@ -488,7 +508,7 @@ vllm serve "$MODEL" ... --kv-cache-dtype fp8</code></pre>
                     <pre><code>import torch, triton, triton.language as tl
 
 @triton.jit
-def add_kernel(x, y, out, n, BLOCK: tl.constexpr):  # n runtime: không recompile theo size
+def add_kernel(x, y, out, n, BLOCK: tl.constexpr):  # n runtime: chỉ vài specialization (chia hết 16, bằng 1)
     offsets = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
     mask = offsets &lt; n
     tl.store(out + offsets, tl.load(x + offsets, mask=mask)
@@ -502,8 +522,9 @@ def add(x, y):
 for n in [1, 127, 256, 4097, 1 &lt;&lt; 20]:
     x, y = (torch.randn(n, device="cuda") for _ in range(2))
     torch.testing.assert_close(add(x, y), x + y)
-ms = triton.testing.do_bench(lambda: add(x, y))
-print(f"{ms:.4f} ms")</code></pre>
+# do_bench trả mean nếu không xin quantiles; lưu p50 cùng khoảng p20–p80.
+p50, p20, p80 = triton.testing.do_bench(lambda: add(x, y), quantiles=[0.5, 0.2, 0.8])
+print(f"p50 {p50:.4f} ms (p20 {p20:.4f}, p80 {p80:.4f})")</code></pre>
                     <p class="lab-warning">Đây là bài học mechanics, không phải candidate tối ưu LFM. Với fusion thật: khóa reference, test non-contiguous/edge shapes/dtypes, đo register pressure và chỉ integrate khi profiler chứng minh intermediate HBM traffic hoặc launch gap nằm trên critical path.</p>
                     <div class="lab-grid">
                       <div><b>Observe</b><span>mask cho tail, program grid và warm JIT compilation.</span></div>
@@ -570,7 +591,7 @@ racebench validate-ledger experiments/ledger.csv
                   <div class="term-card"><h3>Mean</h3><p>Trung bình cộng của mọi observation. Dùng toàn bộ dữ liệu nhưng nhạy với outlier và long tail.</p></div>
                   <div class="term-card"><h3>Median · p50</h3><p>Giá trị giữa sau khi sort; một nửa request thấp hơn và một nửa cao hơn. Robust hơn mean nhưng có thể che tail.</p></div>
                   <div class="term-card"><h3>p95 / p99</h3><p>Ngưỡng mà 95%/99% observations không vượt quá. p99 cao cho thấy 1% tail requests rất chậm; không phải “99% confidence”.</p></div>
-                  <div class="term-card"><h3>Bootstrap 95% CI</h3><p>Resample paired deltas có replacement, tính statistic nhiều lần rồi lấy interval. Nó mô tả uncertainty của estimator, không phải quality/correctness.</p></div>
+                  <div class="term-card"><h3>Bootstrap 95% CI</h3><p>Resample paired deltas có replacement theo từng conversation (sáu turns đi cùng nhau vì không độc lập), tính statistic nhiều lần rồi lấy interval. Nó mô tả uncertainty của estimator, không phải quality/correctness.</p></div>
                 </div>
 
                 <section class="definition-sources" aria-labelledby="definition-source-title">
@@ -615,7 +636,7 @@ racebench validate-ledger experiments/ledger.csv
                     <article class="definition-source-card">
                       <span class="source-kind standard">STANDARD · REPO METHOD</span>
                       <h4>Bootstrap 95% confidence interval</h4>
-                      <p><strong>Định nghĩa:</strong> resample các paired deltas với replacement, tính lại mean cho mỗi resample, rồi lấy 2.5th và 97.5th percentiles. Repo dùng percentile bootstrap, 2,000 resamples và seed cố định; SciPy mặc định là BCa nên hai kết quả không mặc nhiên giống nhau.</p>
+                      <p><strong>Định nghĩa:</strong> resample các paired deltas với replacement, tính lại mean cho mỗi resample, rồi lấy 2.5th và 97.5th percentiles. Đơn vị resample là cả conversation, vì các turns của cùng conversation chia sẻ history. Repo dùng percentile bootstrap, 2,000 resamples và seed cố định; SciPy mặc định là BCa nên hai kết quả không mặc nhiên giống nhau.</p>
                       <div class="definition-links"><a href="https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.bootstrap.html">SciPy: bootstrap CI ↗</a><a href="https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/scripts/rtx4080_compare.py">Repo: exact implementation ↗</a></div>
                     </article>
 
@@ -690,8 +711,8 @@ racebench validate-ledger experiments/ledger.csv
                   <section class="formula-card wide-formula">
                     <span>06 · PERCENTILE BOOTSTRAP</span>
                     <h3>95% confidence interval của mean paired delta</h3>
-                    <code>Δ*ᵦ = sample_with_replacement(Δ, n)<br>mᵦ = mean(Δ*ᵦ)<br>CI₉₅ = [Q₂.₅%(m), Q₉₇.₅%(m)]</code>
-                    <p><code>rtx4080_compare.py</code> dùng 2,000 resamples, seed cố định và percentile CI. SciPy mặc định dùng BCa; vì vậy luôn báo method, seed và số resamples. 95% CI không có nghĩa “95% xác suất true effect nằm trong interval này”; 95% là long-run coverage của procedure.</p>
+                    <code>C*ᵦ = sample_with_replacement(conversations, k)<br>mᵦ = mean(Δ của mọi turn trong C*ᵦ)<br>CI₉₅ = [Q₂.₅%(m), Q₉₇.₅%(m)]</code>
+                    <p><code>rtx4080_compare.py</code> dùng 2,000 resamples theo conversation, seed cố định và percentile CI. Khi mỗi request là một conversation riêng (như worked example bên dưới), đây chính là bootstrap theo request.</p><p>SciPy mặc định dùng BCa; vì vậy luôn báo method, seed và số resamples. 95% CI không có nghĩa “95% xác suất true effect nằm trong interval này”; 95% là long-run coverage của procedure.</p>
                   </section>
                 </div>
 

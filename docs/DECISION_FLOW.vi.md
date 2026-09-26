@@ -25,7 +25,8 @@ pass khi:
 - startup manifest giống nhau;
 - output quality/token counts giống expectation;
 - confidence interval đủ nhỏ để phân biệt mức cải thiện định thử;
-- rerun xen kẽ A/B/A không có drift rõ rệt.
+- các lần lặp A/A/A cùng artifact, đều có warm-up trước khi đo, không có drift rõ
+  rệt giữa lần đầu và lần cuối.
 
 Nếu không pass, tối ưu lúc này chỉ là đo noise.
 
@@ -61,7 +62,9 @@ Dùng một bảng trước khi code:
 Mỗi candidate đi qua:
 
 1. Static/source gate: feature có thật sự active cho hybrid model không?
-2. Correctness gate: greedy exact match, sampling semantics, long/short contexts,
+2. Correctness gate: output agreement B↔R0 không thấp hơn R0′↔R0 trên cùng prompt
+   (vLLM không batch-invariant nên exact match giữa hai run greedy không được đảm
+   bảo), task metric trong tolerance, sampling semantics, long/short contexts,
    batch shapes và fallback path.
 3. Target microbenchmark: kernel hoặc component thực sự nhanh hơn trên SM90 MIG.
 4. End-to-end replay: cùng seed/workload, ít nhất A/B/A.
@@ -70,8 +73,9 @@ Mỗi candidate đi qua:
 
 ## Gate 5 — Một submission trả lời đúng một câu hỏi
 
-Với 5 lượt/ngày, portal là dụng cụ xác nhận external validity, không phải compiler
-hay unit test. Một lịch ngày mẫu:
+Với 5 lượt/ngày cho mỗi thành viên (team tối đa 3 người theo narrative), portal là
+dụng cụ xác nhận external validity, không phải compiler hay unit test. Một lịch
+ngày mẫu cho một thành viên:
 
 1. Known-good control để phát hiện evaluator drift.
 2. Candidate có expected value cao nhất.

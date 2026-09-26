@@ -203,19 +203,32 @@ metric_eligible: 420
 Một block mặc định chạy ba server tuần tự:
 
 ```text
-R0  baseline
+R0  baseline (--no-enable-prefix-caching)
  ↓  stop server hoàn toàn
-B   cùng config, chỉ thêm --enable-prefix-caching
+B   cùng config + --enable-prefix-caching --mamba-cache-mode=align
  ↓  stop server hoàn toàn
 R0′ baseline quay lại
  ↓
-paired statistics + bootstrap 95% CI + drift decision
+paired statistics + bootstrap 95% CI (theo conversation) + score gate
 ```
+
+Trên LFM2 (hybrid conv + GQA), bật prefix caching không phải một thay đổi đơn lẻ:
+vLLM 0.25.1 tự chuyển conv-state cache sang mode `align` (chia chunk theo block và
+checkpoint state). Config ghi rõ cả hai để diff thể hiện đúng bundle; hit rate
+xem bằng `grep "Prefix cache hit rate" B-candidate-server.log`.
 
 Mỗi server mới trước tiên phục vụ 4 warm-up conversations × 2 turns không được
 ghi nhận (`--warmup-conversations`, mặc định 4). Server vừa khởi động phải JIT
 một số Triton kernels ở những request đầu tiên; không warm-up thì vài request
 đó chi phối mean TTFT (xem kết quả bên dưới).
+
+Để request `c012-t04` là **cùng một prompt** ở R0, B và R0′, replay mặc định dùng
+`--history canned` (assistant turns cố định thay vì câu trả lời của chính run đó —
+vLLM không batch-invariant nên câu trả lời có thể khác giữa các run) và
+`--output-length fixed` (mọi request decode đúng `max-tokens`, cùng mẫu số TPOT).
+Mỗi request ghi `prompt_sha256` và `output_text`; comparison chỉ pair các prompt
+trùng hash. `--history live --output-length natural` vẫn có cho workload thực tế
+hơn, nhưng khi đó chỉ turn 1 pair chính xác.
 
 Mỗi stage có 420 requests, tổng cộng 1,260. Trên máy đã kiểm chứng, block mất
 khoảng bốn phút sau khi environment và model cache đã sẵn sàng. Terminal có
@@ -233,16 +246,28 @@ thể im lặng trong lúc replay; không đóng cửa sổ nếu chưa thấy e
 }
 ```
 
-Quy tắc:
+Quy tắc — mục tiêu là ERS, nên CI của ΔERS so với trung điểm R0/R0′ quyết định
+hướng; từng latency metric chỉ là chẩn đoán:
 
-- `candidate_faster_pending_correctness`: performance signal qua drift gate,
-  nhưng vẫn cần correctness và nhiều block lặp lại;
-- `uncertain`: confidence interval đi qua 0;
-- `reject_slower` hoặc `reject_failures`: không tiếp tục candidate;
+- `candidate_score_gain_pending_correctness`: CI của ΔERS nằm trên 0 và qua các
+  kiểm tra drift; vẫn cần correctness và nhiều block lặp lại. Metric nào chậm hơn
+  được ghi là trade-off;
+- `uncertain`: CI của ΔERS đi qua 0;
+- `reject_score_loss` hoặc `reject_failures`: không tiếp tục candidate;
 - `inconclusive_outlier_dominated`: mean paired delta nói “faster” nhưng median
-  paired delta không âm — gain do vài request (thường là cold start) mang lại;
-- `inconclusive_due_to_drift`: R0′ thay đổi đủ lớn để không thể gán gain cho B;
+  paired delta không âm — thường là cold start; một cải thiện tail thật phải còn
+  nguyên khi bỏ các arrivals đầu;
+- `inconclusive_due_to_drift`: R0′ cải thiện cùng chiều và ít nhất bằng gain của B
+  (kể cả khi CI của drift đi qua 0), hoặc R0′ fail nhiều request hơn R0;
 - `incomplete_without_baseline_return`: thiếu R0′, không được promote.
+
+Correctness đi kèm: `pairing.output_match_rate` của B↔R0 không nên thấp hơn của
+R0′↔R0 (noise của chính baseline); exact match 100% không phải chuẩn vì vLLM không
+batch-invariant.
+
+Request fail không làm dừng block: replay ghi lại chúng (exit code 3) và gate
+`reject_failures` quyết định. Hai run chỉ được so khi cùng model, seed, rate và
+workload shape; nếu khác, `rtx4080_compare.py` từ chối pair.
 
 ## Bước 7 — tìm và mở kết quả từ Windows
 
@@ -321,7 +346,8 @@ Baseline nằm tại
 
 - `--max-model-len=4096` để giảm state/graph pressure;
 - `--gpu-memory-utilization=0.88` để chừa VRAM cho runtime;
-- `--max-num-seqs=80` để phủ 70 conversations có margin;
+- `--max-num-seqs=80`: ≥ 70 nên không bao giờ làm request phải chờ (mỗi conversation
+  tối đa một request đang chạy; replay đo được trung bình ~1.8 request đang chạy);
 - `--max-num-batched-tokens=4096`;
 - `dtype=auto`, không trộn quantization vào baseline đầu tiên;
 - pinned model revision và seed.
@@ -353,14 +379,21 @@ nên chỉ dùng để chẩn đoán):
 
 | Paired delta, n = 410 | TTFT | TPOT |
 |---|---:|---:|
-| R0′ − R0 (drift) | −0.31 ms, CI [−0.76, 0.03] · uncertain | +0.002 ms · uncertain |
-| B − R0 (prefix cache) | +0.67 ms, CI [0.10, 1.12] · slower | −0.045 ms, CI [−0.083, −0.018] · faster |
+| R0′ − R0 (drift) | −0.31 ms, CI [−0.71, +0.004] · uncertain | +0.002 ms · uncertain |
+| B − R0 (prefix cache) | +0.67 ms, CI [0.27, 1.00] · slower | −0.045 ms, CI [−0.085, −0.019] · faster |
+| B − R0′ | +0.97 ms, CI [0.70, 1.24] · slower | −0.048 ms · faster |
+| **ΔERS, B − trung điểm R0/R0′** | **+0.14, CI [−0.02, +0.36] · uncertain** | |
 
-Kết luận vẫn là **không promote**, nhưng lý do khác với bản đầu: baseline không
-drift; prefix caching làm TTFT chậm hơn ở turns 1–4, nhanh hơn ở turns 5–6, và net
-ERS theo công thức được trích chỉ khoảng +0.2. Harness đã được sửa (warm-up trước
-khi đo; `rtx4080_compare.py` phát hiện mean gain mà median request không có), nên
-cần chạy lại block trên GPU không có ứng dụng khác trước khi quyết định.
+Kết luận vẫn là **không promote**, nhưng lý do khác với bản đầu. Không phát hiện
+drift — dù CI của R0′−R0 vẫn cho phép drift tới ~0.7 ms, nên kết luận TTFT dựa
+vào việc B chậm hơn **cả** R0 lẫn R0′. Prefix caching làm TTFT chậm hơn ở turns
+1–4 và nhanh hơn ở turns 5–6; phạt ở turn 1, nơi chưa có gì để reuse, có thể đến
+từ mode `align` đi kèm hơn là từ caching. TPOT nhanh hơn chút ít nhưng median
+paired delta ≈ 0, nên phần đó nằm ở tail. Score gate cho ΔERS **uncertain**.
+
+Block cũ còn dùng live history, nên chỉ turn 1 là prompt giống hệt giữa các stage.
+Harness đã được sửa (warm-up, canned history, fixed output length, prompt hash,
+score gate); cần chạy lại block trên GPU không có ứng dụng khác trước khi quyết định.
 
 Harness cũ còn một lỗi đo nhỏ: `completion_tokens` có tính token EOS, nhưng TPOT
 kết thúc ở content chunk cuối, trước finish chunk của EOS. Với 322–328 request dừng

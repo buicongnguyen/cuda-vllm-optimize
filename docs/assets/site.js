@@ -60,12 +60,16 @@ function calculateScore() {
     return;
   }
 
-  const ttft = Number(ttftInput.value);
-  const tpot = Number(tpotInput.value);
+  // valueAsNumber is NaN for an empty or invalid field; Number("") would be 0 ms.
+  const ttft = ttftInput.valueAsNumber;
+  const tpot = tpotInput.valueAsNumber;
   if (!Number.isFinite(ttft) || !Number.isFinite(tpot) || ttft < 0 || tpot < 0) {
     scoreOutput.textContent = "—";
     updateContribution(ttftContributionOutput, ttftBar, 0);
     updateContribution(tpotContributionOutput, tpotBar, 0);
+    if (scoreDetail instanceof HTMLElement) {
+      scoreDetail.textContent = "Nhập TTFT và TPOT (ms, không âm) để tính ERS.";
+    }
     return;
   }
 

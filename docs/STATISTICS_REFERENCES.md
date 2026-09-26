@@ -20,6 +20,14 @@ Two measurements are paired when observation `i` in one sample corresponds to
 observation `i` in the other sample. Here, R0 and B must contain the same
 `request_id`, prompt, conversation turn, seed, and output policy.
 
+The same `request_id` is not automatically the same prompt. vLLM is not
+batch-invariant, so two runs can generate different answers, and with live
+history turns 2-6 embed those answers. The replay therefore defaults to
+`--history canned` (fixed assistant turns) and `--output-length fixed` (every
+request decodes exactly `max_tokens`), records a `prompt_sha256` per request,
+and the comparison pairs only requests whose hashes match. The 2026-08-02 block
+predates this and used live history, so only its turn-1 pairs were identical.
+
 For latency, this repo defines:
 
 ```text
@@ -93,16 +101,21 @@ Always report the sample size and percentile method.
 
 The repo resamples the paired deltas with replacement, calculates the mean for
 each resample, then takes the 2.5th and 97.5th percentiles of those bootstrap
-means:
+means. The resampling unit is the **conversation**, not the request: the six
+turns of one conversation share history and are not independent, and treating
+them as independent would understate the uncertainty.
 
 ```text
-delta*_b = sample_with_replacement(delta, n)
-m_b      = mean(delta*_b)
-CI_95    = [percentile_2.5(m), percentile_97.5(m)]
+conv*_b = sample_with_replacement(conversations, k)   # all turns of each
+m_b     = mean(delta over the turns of conv*_b)
+CI_95   = [percentile_2.5(m), percentile_97.5(m)]
 ```
 
 The implementation uses percentile bootstrap, 2,000 resamples, and a fixed
-seed. SciPy currently defaults to BCa, so a SciPy default call is not identical
+seed. When every request is its own conversation this reduces to the ordinary
+request-level bootstrap. With few clusters the percentile interval is far too
+narrow: two identical 4-conversation runs on a shared GPU produced a
+"significant" score loss. The gate therefore warns below 20 conversations. SciPy currently defaults to BCa, so a SciPy default call is not identical
 to this repo's procedure. A 95% confidence interval describes long-run coverage
 of the procedure; it is not a 95% probability statement about this fixed
 interval containing the true effect.
@@ -125,11 +138,26 @@ This label reports the sign of the estimated mean latency change under the
 chosen interval procedure. It does not establish output correctness, stability,
 or a system-wide win. For example, TTFT can be faster while TPOT is slower.
 
-A mean is not robust to a handful of extreme requests, so the promotion gate
-also checks the paired median. When a metric is `faster` but
-`median(delta) >= 0`, the block is classified `inconclusive_outlier_dominated`.
-In the 2026-08-02 block, five cold-start requests (about 1 s TTFT each) made the
-mean TTFT delta -11.8 ms while the median paired request was 1.35 ms slower.
+These per-metric labels are diagnostics, not the verdict. The objective is ERS,
+and a slower TTFT can be worth a faster TPOT, so the promotion gate bootstraps
+the score itself, resampling conversations:
+
+```text
+delta_ERS = ERS(B) - (ERS(R0) + ERS(R0-prime)) / 2   # midpoint cancels linear drift
+CI.low > 0 => gain;  CI.high < 0 => reject_score_loss;  otherwise => uncertain
+```
+
+A per-metric `slower` label then appears as a trade-off note rather than a
+rejection.
+
+A mean is not robust to a handful of extreme requests, so the gate also checks
+the paired median. When a metric is `faster` but `median(delta) >= 0`, the
+block is classified `inconclusive_outlier_dominated`. In the 2026-08-02 block,
+five cold-start requests (about 1 s TTFT each) made the mean TTFT delta -11.8 ms
+while the median paired request was 1.35 ms slower. A genuine tail improvement
+can trip the same rule. If the evaluator averages, that tail gain is real, so
+confirm it persists when the first arrivals of each run are excluded before
+overriding.
 
 - [Confidence interval basis: SciPy bootstrap](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.bootstrap.html)
 - [Repo classifier: scripts/rtx4080_compare.py](https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/scripts/rtx4080_compare.py)

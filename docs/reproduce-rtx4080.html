@@ -40,7 +40,7 @@
             <div class="brief-row"><span>VRAM</span><strong>16 GB GDDR6X</strong></div>
             <div class="brief-row"><span>Runtime</span><strong>WSL2 · Linux</strong></div>
             <div class="brief-row"><span>Model</span><strong>LFM2.5 · 1.17B</strong></div>
-            <div class="brief-row"><span>Verified</span><strong>4/4 smoke requests</strong></div>
+            <div class="brief-row"><span>Verified</span><strong>Smoke 4/4 · A/B/A 1,260/1,260</strong></div>
             <span class="status">Method reproduction—not H200 score equivalence</span>
           </aside>
         </div>
@@ -130,22 +130,28 @@ wsl -d Ubuntu-22.04 -- nvidia-smi
                 </table>
               </div>
               <aside class="spec-callout"><strong>Missing inputs:</strong> prompt set, output-length distribution, λ, evaluator aggregation và official vLLM image chưa có. Runbook dùng workload emulator có seed; thay chúng ngay khi nhận được evaluator thật.</aside>
-              <figure class="aba-result-visual" role="img" aria-label="Verified RTX 4080 A B A result: candidate improves versus initial baseline, but unchanged baseline return improves even more, so the candidate is inconclusive due to drift">
-                <figcaption><span>VERIFIED · 420 REQUESTS PER STAGE · 0 FAILURES</span><h3>A/B alone says “faster”; A/B/A says “drift-confounded”</h3><p>Bar ngắn hơn tốt hơn cho latency; ERS dài hơn tốt hơn. R0′ không có prefix cache nhưng vẫn vượt B.</p></figcaption>
+              <figure class="aba-result-visual" role="img" aria-label="Verified RTX 4080 A B A block, re-analysed: mean TTFT made the prefix-cache candidate look faster and the baseline look drifted, but both came from five cold-start requests in the first baseline; median TTFT shows the candidate slightly slower">
+                <figcaption><span>VERIFIED · 420 REQUESTS PER STAGE · 0 FAILURES · RE-ANALYSED 2026-09-26</span><h3>Mean nói “faster + drift”; raw data nói “cold start”</h3><p>Bar ngắn hơn tốt hơn cho latency; ERS dài hơn tốt hơn. Năm request đầu của R0 mất 897–1,082 ms vì Triton JIT trên server vừa khởi động (median cả stage ≈17 ms). Chính chúng tạo ra cả gain của B lẫn “drift” của R0′.</p></figcaption>
                 <div class="aba-metric">
-                  <strong>Mean TTFT ↓</strong>
+                  <strong>Mean TTFT ↓ · as measured</strong>
                   <div class="aba-bar-row"><b>R0</b><span style="--w:100%"></span><em>31.579 ms</em></div>
                   <div class="aba-bar-row"><b>B</b><span style="--w:62.5%"></span><em>19.729 ms</em></div>
                   <div class="aba-bar-row"><b>R0′</b><span style="--w:56.2%"></span><em>17.743 ms</em></div>
                 </div>
                 <div class="aba-metric">
-                  <strong>Quoted-formula ERS ↑</strong>
+                  <strong>Median TTFT ↓ · robust to the 5 cold requests</strong>
+                  <div class="aba-bar-row"><b>R0</b><span style="--w:94.6%"></span><em>16.783 ms</em></div>
+                  <div class="aba-bar-row"><b>B</b><span style="--w:100%"></span><em>17.738 ms</em></div>
+                  <div class="aba-bar-row"><b>R0′</b><span style="--w:92.1%"></span><em>16.344 ms</em></div>
+                </div>
+                <div class="aba-metric">
+                  <strong>Quoted-formula ERS ↑ · as measured</strong>
                   <div class="aba-bar-row"><b>R0</b><span style="--w:93.4%"></span><em>65.832</em></div>
                   <div class="aba-bar-row"><b>B</b><span style="--w:99.6%"></span><em>70.184</em></div>
                   <div class="aba-bar-row"><b>R0′</b><span style="--w:100%"></span><em>70.460</em></div>
                 </div>
-                <div class="aba-verdict"><b>DO NOT PROMOTE</b><span>R0′ ΔERS +4.629 &gt; candidate ΔERS +4.352. Repeat blocks after stabilizing warm-up/clocks/cache state.</span></div>
-                <p class="chart-note"><span>Local emulator, seed 2025, λ assumed 7 req/s.</span><a href="https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/data/rtx4080-verified-aba-summary.json">Machine-readable summary ↗</a></p>
+                <div class="aba-verdict"><b>DO NOT PROMOTE</b><span>Bỏ 10 arrivals đầu (post hoc): R0′−R0 TTFT −0.31 ms, CI qua 0 → không có drift thật. B−R0 TTFT +0.67 ms [0.10, 1.12] → slower (chậm hơn ở turns 1–4, nhanh hơn ở turns 5–6); TPOT −0.045 ms; ERS chỉ ≈ +0.2. Harness nay warm-up trước khi đo; cần chạy lại block trên GPU rảnh.</span></div>
+                <p class="chart-note"><span>Local emulator, seed 2025, λ assumed 7 req/s. Fixed compare script: <code>inconclusive_outlier_dominated</code>.</span><a href="https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/data/rtx4080-verified-aba-summary.json">Machine-readable summary ↗</a></p>
               </figure>
               <div class="logic-review">
                 <div class="logic-head"><span>LOGIC REVIEW 00</span><b>Local experiment có quyền trả lời câu hỏi nào?</b></div>
@@ -273,7 +279,9 @@ python scripts/rtx4080_lab.py run --mode baseline
 python scripts/rtx4080_lab.py run --mode baseline \
   --conversations 70 --turns 6 --rate 7 --max-tokens 64 --seed 2025</code></pre>
               <h3>Implementation flow trong replay client</h3>
-              <pre><code>arrival = poisson_arrivals(conversations=70, turns=6, request_rate=7, seed=2025)
+              <pre><code>await warm_up(conversations=4, turns=2)       # unrecorded; absorbs cold-start JIT
+run_start = perf_counter()                    # measured clock starts after warm-up
+arrival = poisson_arrivals(conversations=70, turns=6, request_rate=7, seed=2025)
 
 if turn &gt; 1:
     await previous_turn_completed.wait()       # preserve conversation causality
@@ -281,13 +289,16 @@ await sleep_until(run_start + scheduled_s)    # preserve planned arrival when po
 
 submitted = perf_counter()
 async for sse_line in streamed_response:
+    if finish_reason:
+        finished = perf_counter()             # EOS arrives here, without content
     if content_delta:
         first_token = first_token or perf_counter()
-        last_token = perf_counter()
+        last_content = perf_counter()
 
+last_token = max(last_content, finished)       # N counts EOS, so end at its chunk
 ttft_ms = (first_token - submitted) * 1000
 tpot_ms = (last_token - first_token) * 1000 / (completion_tokens - 1)</code></pre>
-              <p class="run-note"><strong>Measurement boundary:</strong> đây là client-observed latency, gồm local HTTP/frontend. <code>completion_tokens</code> lấy từ server usage; nếu server không gửi usage, script ghi rõ <code>content_event_fallback</code>. SSE chunk không được giả định luôn bằng một token.</p>
+              <p class="run-note"><strong>Measurement boundary:</strong> đây là client-observed latency, gồm local HTTP/frontend. <code>completion_tokens</code> lấy từ server usage và có tính token EOS; EOS không có content nên đến trong finish chunk một decode step sau content cuối, và interval kết thúc ở đó. Nếu server không gửi usage, script ghi rõ <code>content_event_fallback</code> và dùng content chunk cuối. SSE chunk không được giả định luôn bằng một token.</p>
               <div class="implementation-links"><a href="https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/scripts/rtx4080_replay.py"><b>Full replay client</b><span>async scheduling, SSE parsing, causal history, JSONL evidence ↗</span></a><a href="https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/scripts/rtx4080_manifest.py"><b>Hardware manifest</b><span>driver, CUDA, packages, SM count, clocks and VRAM ↗</span></a></div>
               <div class="run-check"><b>PASS</b><span>Summary báo <code>requested=420</code>, <code>successful=420</code>, <code>failed=0</code>, <code>metric_eligible=420</code>; mọi request dùng <code>server_usage</code> nếu server hỗ trợ.</span></div>
               <div class="logic-review">
@@ -306,7 +317,7 @@ tpot_ms = (last_token - first_token) * 1000 / (completion_tokens - 1)</code></pr
             <section class="run-step panel" id="matrix">
               <span class="run-index">05 / ONE CHANGE PER RUN</span>
               <h2>Ma trận A/B/A phù hợp RTX 4080 Super</h2>
-              <p>Mỗi row khởi động server mới, warm-up giống nhau, chạy cùng seed/prompt/max tokens và lưu result riêng. R0 xuất hiện lại sau candidate để phát hiện thermal/clock drift.</p>
+              <p>Mỗi row khởi động server mới, chạy cùng warm-up không ghi nhận (<code>--warmup-conversations 4</code>, hai turns mỗi conversation) để Triton JIT của server mới không rơi vào request đo, rồi chạy cùng seed/prompt/max tokens và lưu result riêng. R0 xuất hiện lại sau candidate để phát hiện thermal/clock drift.</p>
               <div class="requirement-table compact-table">
                 <table>
                   <thead><tr><th>Run</th><th>One change</th><th>Server delta</th><th>Kill criterion</th></tr></thead>
@@ -332,7 +343,7 @@ python scripts/rtx4080_lab.py run --mode aba
 python scripts/rtx4080_lab.py run --mode aba \
   --candidate-config configs/vllm/my-one-change.args</code></pre>
               <h3>Paired statistics + drift guard</h3>
-              <p>Orchestrator tự giữ cùng seed/workload, chạy từng server riêng rồi xuất mean/median/p95/p99, bootstrap 95% CI, faster/slower/uncertain, ΔERS và R0→R0′ drift. <code>experiment-plan.json</code> ghi exact command và chứng minh candidate mặc định chỉ thêm prefix caching.</p>
+              <p>Orchestrator tự giữ cùng seed/workload, chạy từng server riêng rồi xuất mean/median/p95/p99, bootstrap 95% CI, faster/slower/uncertain, ΔERS và R0→R0′ drift. Một metric “faster” theo mean mà median paired delta không âm được xếp <code>inconclusive_outlier_dominated</code>: gain đó chỉ do vài request mang lại. <code>experiment-plan.json</code> ghi exact command và chứng minh candidate mặc định chỉ thêm prefix caching.</p>
               <p class="run-note">LFM2 là model hybrid có inner state; behavior cache có thể đổi theo vLLM version. Vì vậy config pin 0.25.1 và candidate phải qua smoke/correctness gate trước khi diễn giải performance.</p>
               <div class="logic-review">
                 <div class="logic-head"><span>LOGIC REVIEW 05</span><b>Candidate thắng thật hay chỉ trúng noise?</b></div>
@@ -361,14 +372,16 @@ python scripts/rtx4080_lab.py run --mode aba \
                 <div class="profile-lane-note"><span>Client timestamps → end-to-end symptom</span><span>Systems → critical-path gap/kernel</span><span>Compute → selected kernel counters</span></div>
               </figure>
               <h3>A. Nsight Systems: server timeline</h3>
-              <pre><code># Terminal A — profile server process
+              <pre><code># Terminal A — profile đúng R0 server; lệnh serve lấy từ config đã pin.
+# Flags theo vLLM profiling guide: theo dõi EngineCore child process và
+# tách node trong CUDA Graph thay vì một graph launch mờ.
+export VLLM_USE_FLASHINFER_SAMPLER=0
 nsys profile --trace=cuda,nvtx,osrt --sample=none \
+  --trace-fork-before-exec=true --cuda-graph-trace=node \
   --output=results/rtx4080/R0-systems --force-overwrite=true \
-  vllm serve "$MODEL" --max-model-len 8192 \
-    --gpu-memory-utilization 0.88 --max-num-seqs 128 \
-    --max-num-batched-tokens 4096
+  $(python scripts/rtx4080_lab.py command --config configs/vllm/rtx4080-r0.args)
 
-# Terminal B — warm-up rồi chạy replay nhỏ đại diện
+# Terminal B — replay nhỏ đại diện; warm-up mặc định chạy trước khi đo
 python scripts/rtx4080_replay.py --conversations 8 --turns 2 \
   --rate 2 --max-tokens 32 --output results/rtx4080/profile-replay.jsonl
 

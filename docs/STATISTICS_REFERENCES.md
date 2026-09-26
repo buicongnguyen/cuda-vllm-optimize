@@ -125,6 +125,12 @@ This label reports the sign of the estimated mean latency change under the
 chosen interval procedure. It does not establish output correctness, stability,
 or a system-wide win. For example, TTFT can be faster while TPOT is slower.
 
+A mean is not robust to a handful of extreme requests, so the promotion gate
+also checks the paired median. When a metric is `faster` but
+`median(delta) >= 0`, the block is classified `inconclusive_outlier_dominated`.
+In the 2026-08-02 block, five cold-start requests (about 1 s TTFT each) made the
+mean TTFT delta -11.8 ms while the median paired request was 1.35 ms slower.
+
 - [Confidence interval basis: SciPy bootstrap](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.bootstrap.html)
 - [Repo classifier: scripts/rtx4080_compare.py](https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/scripts/rtx4080_compare.py)
 
@@ -142,6 +148,9 @@ under this expression, but the same aggregation must be used for R0 and B.
 
 There is no official evaluator/spec link in this repository. Clipping,
 aggregation, quality rules, and hidden evaluator behavior remain unverified.
+Outside 10-400 ms TTFT and 1-10 ms TPOT the literal quadratic rewards worse
+latency, so the repo clamps each normalized term to [0, 1] by default; inside
+that range clamped and literal values are identical.
 
 - [Evidence status and open questions](https://buicongnguyen.github.io/cuda-vllm-optimize/problem.html#contract)
 - [Repo formula: src/racebench/score.py](https://github.com/buicongnguyen/cuda-vllm-optimize/blob/main/src/racebench/score.py)

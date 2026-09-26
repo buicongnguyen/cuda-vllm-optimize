@@ -21,8 +21,9 @@ truth.
   tính: kiến trúc thật là **10 convolution + 6 GQA**, và công thức được trích dẫn
   cho **63.1851 ERS** tại `TTFT=47 ms, TPOT=4 ms`, không phải khoảng 42.
 - Với chính công thức đó, tại TTFT 47 ms, muốn đạt 72 ERS cần TPOT khoảng
-  **2.909 ms**. Gần điểm này, giảm 0.1 ms TPOT đáng giá khoảng 0.74 điểm ERS;
-  giảm 1 ms TTFT chỉ đáng giá khoảng 0.23 điểm.
+  **2.909 ms**. Tại 47 ms / 4 ms, giảm 0.1 ms TPOT đáng giá khoảng 0.74 điểm ERS
+  (khoảng 0.88 điểm khi đã gần mốc 2.909 ms); giảm 1 ms TTFT chỉ đáng giá khoảng
+  0.23 điểm.
 - Speculative decoding cho draft model LFM hybrid hiện không phải một flag dễ
   bật. vLLM issue #49112 chỉ ra draft model cần nhiều KV-cache group trong khi
   proposer vẫn giả định một group/`AttentionMetadata`.
@@ -73,8 +74,11 @@ wsl -d Ubuntu-22.04 -- nvidia-smi
 
 Ba lệnh tương ứng kiểm tra cài đặt, chạy workload 70 × 6 và chạy block
 R0/B/R0′ có bootstrap CI + drift guard. Full block đã pass 1,260/1,260
-requests trên máy này; prefix cache chưa được promote vì R0′ cải thiện còn lớn
-hơn candidate. Setup tự pin vLLM 0.25.1, model
+requests trên máy này và prefix cache không được promote. Phân tích lại raw data
+cho thấy “gain” và “drift” ban đầu đều đến từ năm request cold-start (Triton JIT
+trên server vừa khởi động). Bỏ chúng đi, baseline không drift và prefix cache làm
+TTFT chậm hơn khoảng 0.7 ms. Harness nay warm-up trước khi đo; block cần được chạy
+lại. Setup tự pin vLLM 0.25.1, model
 revision, Python 3.12, mirror code vào WSL ext4 và lưu raw evidence. Xem
 [hướng dẫn GitHub đầy đủ](RTX4080_RUNBOOK.md) trước khi diễn giải điểm: đây là
 method reproduction trên SM89, không phải H200 MIG score equivalence.
@@ -98,6 +102,11 @@ racebench workload --conversations 70 --turns 6 --rate 7 --seed 2025
 
 `--rate 7` chỉ là giá trị mẫu vì bài viết nói arrival Poisson nhưng không cho
 lambda. Phải thay bằng tham số chính thức trước khi dùng kết quả.
+
+`racebench score` clamp mỗi thành phần về [0, 1] ngoài khoảng 10–400 ms TTFT và
+1–10 ms TPOT. Công thức bậc hai nguyên văn thưởng điểm cho latency tệ hơn ngoài
+khoảng đó (1000 ms / 20 ms cho khoảng 180 “ERS”). Trong khoảng, hai cách cho cùng
+kết quả; `--unclamped` tính đúng biểu thức nguyên văn.
 
 Để hiểu chi tiết workload emulator trên RTX 4080 Super/WSL2, theo
 [runbook chi tiết](https://buicongnguyen.github.io/cuda-vllm-optimize/reproduce-rtx4080.html)
@@ -126,5 +135,6 @@ hoặc [runbook trực tiếp trong GitHub](RTX4080_RUNBOOK.md).
 
 Đây là analysis/harness repo đã được publish bằng GitHub Pages. Smoke pipeline
 đã pass trên RTX 4080 Super của workspace hiện tại (smoke 4/4; full A/B/A
-1,260/1,260 streamed requests). Repo vẫn chưa phải fork vLLM và chưa được
-benchmark trên GPU cuộc thi.
+1,260/1,260 streamed requests). A/B/A đó chạy trước khi harness có warm-up; cần
+chạy lại trên GPU rảnh. Repo vẫn chưa phải fork vLLM và chưa được benchmark trên
+GPU cuộc thi.

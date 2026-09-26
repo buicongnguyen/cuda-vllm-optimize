@@ -124,11 +124,13 @@ model. Script thực hiện tuần tự:
 
 1. chọn chính xác distro `Ubuntu-22.04`;
 2. xác nhận GPU qua `nvidia-smi`;
-3. mirror Windows checkout vào `~/src/cuda-vllm-optimize` trên WSL ext4;
+3. mirror Windows checkout vào `~/src/cuda-vllm-optimize` trên WSL ext4 và ghi
+   commit nguồn (thêm hậu tố `-dirty` nếu có thay đổi chưa commit);
 4. tạo venv `~/.venvs/lfm-racebench-rtx4080` với Python 3.12;
 5. pin vLLM 0.25.1 và model revision;
 6. chạy doctor;
-7. start vLLM, đợi health endpoint, gửi 4 streaming requests rồi stop server;
+7. start vLLM, đợi health endpoint, chạy warm-up không ghi nhận, gửi 4
+   streaming requests được đo rồi stop server;
 8. lưu config, manifest, server log và raw request records.
 
 Checkpoint thành công ở cuối output:
@@ -210,6 +212,11 @@ R0′ baseline quay lại
 paired statistics + bootstrap 95% CI + drift decision
 ```
 
+Mỗi server mới trước tiên phục vụ 4 warm-up conversations × 2 turns không được
+ghi nhận (`--warmup-conversations`, mặc định 4). Server vừa khởi động phải JIT
+một số Triton kernels ở những request đầu tiên; không warm-up thì vài request
+đó chi phối mean TTFT (xem kết quả bên dưới).
+
 Mỗi stage có 420 requests, tổng cộng 1,260. Trên máy đã kiểm chứng, block mất
 khoảng bốn phút sau khi environment và model cache đã sẵn sàng. Terminal có
 thể im lặng trong lúc replay; không đóng cửa sổ nếu chưa thấy error hoặc
@@ -220,7 +227,7 @@ thể im lặng trong lúc replay; không đóng cửa sổ nếu chưa thấy e
 ```json
 {
   "decision": {
-    "classification": "inconclusive_due_to_drift",
+    "classification": "inconclusive_outlier_dominated",
     "promote": false
   }
 }
@@ -232,6 +239,8 @@ Quy tắc:
   nhưng vẫn cần correctness và nhiều block lặp lại;
 - `uncertain`: confidence interval đi qua 0;
 - `reject_slower` hoặc `reject_failures`: không tiếp tục candidate;
+- `inconclusive_outlier_dominated`: mean paired delta nói “faster” nhưng median
+  paired delta không âm — gain do vài request (thường là cold start) mang lại;
 - `inconclusive_due_to_drift`: R0′ thay đổi đủ lớn để không thể gán gain cho B;
 - `incomplete_without_baseline_return`: thiếu R0′, không được promote.
 
@@ -323,17 +332,40 @@ là path đã chạy thành công trên stock Ubuntu WSL2 của máy này.
 
 ## Kết quả đã kiểm chứng và cách diễn giải
 
-Full A/B/A đã hoàn tất 1,260/1,260 requests, zero failures:
+Full A/B/A ngày 2026-08-02 đã hoàn tất 1,260/1,260 requests, zero failures.
+Block này chạy bằng harness **trước** khi có warm-up:
 
-| Stage | Mean TTFT | Mean TPOT | Quoted-formula ERS |
-|---|---:|---:|---:|
-| R0 | 31.579 ms | 4.138 ms | 65.832 |
-| B · prefix cache | 19.729 ms | 3.943 ms | 70.184 |
-| R0′ | 17.743 ms | 3.973 ms | 70.460 |
+| Stage | Mean TTFT | Median TTFT | Mean TPOT | Quoted-formula ERS |
+|---|---:|---:|---:|---:|
+| R0 | 31.579 ms | 16.783 ms | 4.138 ms | 65.832 |
+| B · prefix cache | 19.729 ms | 17.738 ms | 3.943 ms | 70.184 |
+| R0′ | 17.743 ms | 16.344 ms | 3.973 ms | 70.460 |
 
-B trông nhanh hơn R0, nhưng R0′ không có prefix caching còn nhanh hơn B. Vì
-vậy kết luận đúng là **không promote**: warm-up, clocks hoặc persistent cache
-đã làm block bị drift. Đây chính là lý do không dùng A/B đơn giản.
+Theo mean, B trông nhanh hơn R0 11.8 ms và R0′ trông như bị “drift”. Raw data
+cho thấy cả hai là **một hiện tượng**: năm request đầu của R0 mất 897–1,082 ms
+TTFT vì server vừa khởi động JIT Triton kernels trong lúc phục vụ chúng (log vLLM
+ghi `JIT compilation during inference`). Median — không nhạy với năm request đó —
+cho thấy B chậm nhất. Median paired delta B−R0 là +1.35 ms trong khi mean paired
+delta là −11.8 ms.
+
+Phân tích lại, bỏ 10 arrivals đầu của mỗi stage (ngưỡng chọn sau khi đã xem data,
+nên chỉ dùng để chẩn đoán):
+
+| Paired delta, n = 410 | TTFT | TPOT |
+|---|---:|---:|
+| R0′ − R0 (drift) | −0.31 ms, CI [−0.76, 0.03] · uncertain | +0.002 ms · uncertain |
+| B − R0 (prefix cache) | +0.67 ms, CI [0.10, 1.12] · slower | −0.045 ms, CI [−0.083, −0.018] · faster |
+
+Kết luận vẫn là **không promote**, nhưng lý do khác với bản đầu: baseline không
+drift; prefix caching làm TTFT chậm hơn ở turns 1–4, nhanh hơn ở turns 5–6, và net
+ERS theo công thức được trích chỉ khoảng +0.2. Harness đã được sửa (warm-up trước
+khi đo; `rtx4080_compare.py` phát hiện mean gain mà median request không có), nên
+cần chạy lại block trên GPU không có ứng dụng khác trước khi quyết định.
+
+Harness cũ còn một lỗi đo nhỏ: `completion_tokens` có tính token EOS, nhưng TPOT
+kết thúc ở content chunk cuối, trước finish chunk của EOS. Với 322–328 request dừng
+bằng EOS mỗi stage, TPOT thấp khoảng 2% (mean R0 4.138 → ~4.208 ms). Lỗi này
+như nhau giữa các stage nên không đổi chiều so sánh, và đã được sửa.
 
 Summary máy đọc được:
 [`data/rtx4080-verified-aba-summary.json`](data/rtx4080-verified-aba-summary.json).
@@ -343,12 +375,14 @@ Summary máy đọc được:
 Sau mỗi A/B/A block:
 
 1. Có request fail hoặc output sai → sửa correctness, không đọc performance.
-2. R0′ drift lớn → ổn định nhiệt độ/clocks/background load và repeat block.
-3. CI đi qua 0 → candidate chưa thắng noise; repeat trước khi thêm flag khác.
-4. TTFT và TPOT đi ngược chiều → tách queue/prefill khỏi decode để profile.
-5. Signal ổn định → dùng Nsight Systems tìm critical path.
-6. Chỉ dùng Nsight Compute với kernel đã chọn.
-7. Chỉ viết/fuse kernel khi measured contribution có thể vượt noise floor.
+2. Mean và median paired delta ngược dấu → xem các request chậm nhất trước
+   (cold start, tail); đừng gọi đó là gain hay drift.
+3. R0′ drift lớn → ổn định nhiệt độ/clocks/background load và repeat block.
+4. CI đi qua 0 → candidate chưa thắng noise; repeat trước khi thêm flag khác.
+5. TTFT và TPOT đi ngược chiều → tách queue/prefill khỏi decode để profile.
+6. Signal ổn định → dùng Nsight Systems tìm critical path.
+7. Chỉ dùng Nsight Compute với kernel đã chọn.
+8. Chỉ viết/fuse kernel khi measured contribution có thể vượt noise floor.
 
 ## Troubleshooting theo thứ tự
 
@@ -403,5 +437,7 @@ export VLLM_USE_FLASHINFER_SAMPLER=0
 
 ### Windows checkout thay đổi nhưng WSL chưa thấy
 
-Chạy lại bất kỳ bootstrap command nào. Setup luôn rsync Windows source sang WSL
-trước khi run và giữ nguyên các result directories cũ.
+Chạy lại bootstrap không kèm `-DoctorOnly` (ví dụ `.\scripts\rtx4080_bootstrap.ps1`
+hoặc `-Run smoke`). Setup luôn rsync Windows source sang WSL trước khi run, rồi
+chạy lab từ chính tree vừa sync, và giữ nguyên các result directories cũ.
+`-DoctorOnly` không sync.

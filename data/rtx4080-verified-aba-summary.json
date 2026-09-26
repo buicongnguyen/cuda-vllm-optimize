@@ -1,5 +1,6 @@
 {
-  "captured_at_utc": "2026-08-02",
+  "captured_on": "2026-08-02",
+  "reanalysed_on": "2026-09-26",
   "scope": "Local method reproduction on RTX 4080 Super; not contest evaluator output",
   "workload": {
     "conversations": 70,
@@ -9,12 +10,21 @@
     "max_tokens": 64,
     "seed": 2025
   },
-  "stages": {
+  "harness_at_capture": {
+    "source_commit": "2ff9b81 plus uncommitted lab scripts (the manifest did not yet record dirty trees)",
+    "issues_found": [
+      "No warm-up. Each freshly started server JIT-compiled Triton kernels (_zero_kv_blocks_kernel, _compute_slot_mapping_kernel, _causal_conv1d_fwd_kernel; batch_memcpy_kernel with prefix caching) while serving its first measured requests; vLLM logged 'Triton kernel JIT compilation during inference'. The first five arrivals of R0 took 897-1,082 ms TTFT against a ~17 ms median.",
+      "TPOT ended at the last content chunk, but server completion_tokens also counts the EOS token, whose finish chunk arrives one decode step later. For the 322-328 stop-terminated requests per stage the (N-1) denominator therefore spanned only N-2 intervals, biasing TPOT about 2% low (R0 mean 4.138 ms, about 4.208 ms corrected)."
+    ],
+    "fixed_by": "scripts/rtx4080_replay.py now serves 4 unrecorded two-turn warm-up conversations before the measured clock and ends TPOT at the finish chunk; scripts/rtx4080_compare.py flags mean gains that the median paired request does not share."
+  },
+  "stages_as_measured": {
     "R0": {
       "successful": 420,
       "failed": 0,
       "mean_ttft_ms": 31.57852212146584,
       "mean_tpot_ms": 4.138036334039564,
+      "median_ttft_ms": 16.782611499365885,
       "ers_from_quoted_formula": 65.83160613687672
     },
     "B_prefix_cache": {
@@ -22,6 +32,7 @@
       "failed": 0,
       "mean_ttft_ms": 19.729160794806724,
       "mean_tpot_ms": 3.9429186268984875,
+      "median_ttft_ms": 17.738242997438647,
       "ers_from_quoted_formula": 70.18351843811479,
       "ers_delta_vs_R0": 4.351912301238073
     },
@@ -30,17 +41,50 @@
       "failed": 0,
       "mean_ttft_ms": 17.742612438416387,
       "mean_tpot_ms": 3.972549779384632,
+      "median_ttft_ms": 16.344427996955346,
       "ers_from_quoted_formula": 70.46044386903343,
       "ers_delta_vs_R0": 4.628837732156711
     }
   },
-  "candidate_bootstrap_95ci": {
-    "paired_mean_ttft_delta_ms": [-21.210793759914633, -4.098408666282229],
-    "paired_mean_tpot_delta_ms": [-0.29841011572279524, -0.10444902768102378]
+  "as_published_bootstrap_95ci_all_420": {
+    "B_minus_R0_mean_ttft_delta_ms": [-21.210793759914633, -4.098408666282229],
+    "B_minus_R0_mean_tpot_delta_ms": [-0.29841011572279524, -0.10444902768102378],
+    "B_minus_R0_median_ttft_delta_ms": 1.3470849953591824,
+    "B_minus_R0_median_tpot_delta_ms": 0.009236109868526077
+  },
+  "reanalysis_post_hoc": {
+    "note": "The 10-arrival cutoff was chosen after inspecting the data, so treat these numbers as a diagnosis, not a verdict. Medians need no cutoff and agree. Confirm with a clean warm-up rerun.",
+    "cold_start_first5_ttft_ms": {
+      "R0": [1081.5, 1016.9, 923.8, 897.2, 896.9],
+      "B_prefix_cache": [310.4, 215.2, 122.2, 95.6, 95.3],
+      "R0_prime": [91.1, 167.1, 79.5, 52.0, 51.6]
+    },
+    "excluding_first_10_arrivals": {
+      "R0": {"mean_ttft_ms": 17.257, "mean_tpot_ms": 3.961, "ers_from_quoted_formula": 70.665},
+      "B_prefix_cache": {"mean_ttft_ms": 17.923, "mean_tpot_ms": 3.916, "ers_from_quoted_formula": 70.838},
+      "R0_prime": {"mean_ttft_ms": 16.949, "mean_tpot_ms": 3.964, "ers_from_quoted_formula": 70.727}
+    },
+    "paired_excluding_first_10_arrivals": {
+      "R0_prime_minus_R0": {
+        "ttft_ms": {"n": 410, "mean": -0.308, "bootstrap_95ci": [-0.761, 0.026], "direction": "uncertain"},
+        "tpot_ms": {"n": 410, "mean": 0.002, "bootstrap_95ci": [-0.033, 0.023], "direction": "uncertain"}
+      },
+      "B_minus_R0": {
+        "ttft_ms": {"n": 410, "mean": 0.666, "bootstrap_95ci": [0.099, 1.124], "direction": "slower"},
+        "tpot_ms": {"n": 410, "mean": -0.045, "bootstrap_95ci": [-0.083, -0.018], "direction": "faster"}
+      }
+    },
+    "median_ttft_ms_by_turn": {
+      "R0": {"1": 13.54, "2": 12.86, "3": 16.13, "4": 17.1, "5": 19.47, "6": 22.06},
+      "B_prefix_cache": {"1": 16.61, "2": 16.91, "3": 18.19, "4": 18.17, "5": 17.96, "6": 18.99},
+      "R0_prime": {"1": 12.65, "2": 13.4, "3": 15.31, "4": 16.46, "5": 19.42, "6": 22.6}
+    }
   },
   "decision": {
-    "classification": "inconclusive_due_to_drift",
+    "classification_as_published": "inconclusive_due_to_drift",
+    "classification_with_fixed_compare": "inconclusive_outlier_dominated",
     "promote": false,
-    "reason": "R0-prime improved more than the prefix-cache candidate versus initial R0, so warm-up/clock/cache drift confounds the apparent gain."
+    "reason": "The apparent B gain and the apparent R0-to-R0-prime drift both came from cold-start JIT in the first five requests of R0. Without them the baseline did not drift, prefix caching made TTFT about 0.7 ms slower overall (slower on turns 1-4, faster on turns 5-6) and TPOT about 0.05 ms faster, for a net quoted-formula change near +0.2 ERS. Under the repo gate a TTFT CI entirely above zero is reject_slower, but the cutoff is post hoc.",
+    "next": "Rerun R0/B/R0-prime with the warm-up harness on an otherwise idle GPU before deciding."
   }
 }

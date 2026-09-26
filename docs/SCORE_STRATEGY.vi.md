@@ -9,6 +9,11 @@ ERS = 100 × [0.5 × ((400 - TTFT) / 390)²
            + 0.5 × ((10 - TPOT) / 9)²]
 ```
 
+Biểu thức nguyên văn chỉ có nghĩa trong khoảng 10–400 ms TTFT và 1–10 ms TPOT.
+Ngoài khoảng đó, bình phương thưởng điểm cho latency tệ hơn (1000 ms / 20 ms cho
+khoảng 180), nên calculator và `racebench score` clamp mỗi thành phần về [0, 1].
+Mọi số trong tài liệu này nằm trong khoảng nên không đổi.
+
 Từ công thức này:
 
 | TTFT | TPOT | ERS |

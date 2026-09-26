@@ -69,8 +69,12 @@ function calculateScore() {
     return;
   }
 
-  const ttftPart = (400 - ttft) / 390;
-  const tpotPart = (10 - tpot) / 9;
+  // Clamp like src/racebench/score.py: unclamped, the square rewards latency
+  // worse than 400 ms / 10 ms (1000 ms + 20 ms would score about 180).
+  const clamp = (value) => Math.min(1, Math.max(0, value));
+  const ttftPart = clamp((400 - ttft) / 390);
+  const tpotPart = clamp((10 - tpot) / 9);
+  const clamped = ttft < 10 || ttft > 400 || tpot < 1 || tpot > 10;
   const ttftContribution = 50 * ttftPart ** 2;
   const tpotContribution = 50 * tpotPart ** 2;
   const score = ttftContribution + tpotContribution;
@@ -81,7 +85,8 @@ function calculateScore() {
   if (scoreDetail instanceof HTMLElement) {
     const target = 72;
     const state = score >= target ? "đạt" : `còn thiếu ${(target - score).toFixed(2)}`;
-    scoreDetail.textContent = `Mốc 72 ERS: ${state}. Đây là công thức được trích dẫn, chưa phải evaluator chính thức.`;
+    const range = clamped ? " Input ngoài khoảng 10–400 ms / 1–10 ms nên thành phần đã được clamp về [0, 1]." : "";
+    scoreDetail.textContent = `Mốc 72 ERS: ${state}.${range} Đây là công thức được trích dẫn, chưa phải evaluator chính thức.`;
   }
 }
 

@@ -20,6 +20,9 @@ def validate_claims(claims: list[dict[str, object]]) -> list[str]:
     errors: list[str] = []
     seen: set[str] = set()
     for index, claim in enumerate(claims):
+        if not isinstance(claim, dict):
+            errors.append(f"claim[{index}]: must be a JSON object")
+            continue
         claim_id = str(claim.get("id", "")).strip()
         prefix = claim_id or f"claim[{index}]"
         if not claim_id:
@@ -37,4 +40,8 @@ def validate_claims(claims: list[dict[str, object]]) -> list[str]:
             errors.append(f"{prefix}: {status} claims require a source")
         if not isinstance(sources, list):
             errors.append(f"{prefix}: sources must be a list")
+        elif not all(isinstance(source, str) and source.strip() for source in sources):
+            errors.append(f"{prefix}: every source must be a non-empty string")
+        if status == "contradicted" and not str(claim.get("article_claim", "")).strip():
+            errors.append(f"{prefix}: contradicted claims must quote the article_claim they contradict")
     return errors

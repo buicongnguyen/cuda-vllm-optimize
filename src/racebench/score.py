@@ -15,7 +15,7 @@ unclamped values are identical, so every in-range number is unchanged; pass
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import sqrt
+from math import isfinite, sqrt
 
 
 @dataclass(frozen=True)
@@ -41,6 +41,9 @@ class ScorePolicy:
 
 
 def _component(value_ms: float, bad_ms: float, span_ms: float, clamp: bool) -> float:
+    # NaN would otherwise pass the sign check and clamp to a plausible score.
+    if not isfinite(value_ms):
+        raise ValueError("latencies must be finite")
     if value_ms < 0:
         raise ValueError("latencies cannot be negative")
     normalized = (bad_ms - value_ms) / span_ms

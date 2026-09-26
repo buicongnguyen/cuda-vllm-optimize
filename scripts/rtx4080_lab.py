@@ -20,11 +20,13 @@ import platform
 import shlex
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 from time import monotonic, sleep
 from typing import Any, Iterator
 from urllib.error import URLError
+from urllib.parse import urlsplit
 from urllib.request import urlopen
 
 
@@ -85,6 +87,18 @@ def parse_args_file(path: Path) -> ServerConfig:
     return ServerConfig(path.resolve(), tokens[0], tuple(tokens[1:]))
 
 
+def _is_option(token: str) -> bool:
+    """True for ``--flag`` and short flags such as ``-O3``; False for ``-1``."""
+
+    if not token.startswith("-") or token == "-":
+        return False
+    try:
+        float(token)
+    except ValueError:
+        return True
+    return False
+
+
 def option_map(arguments: tuple[str, ...]) -> dict[str, str | bool]:
     """Normalize CLI options so an A/B diff is human-auditable."""
 
@@ -92,12 +106,12 @@ def option_map(arguments: tuple[str, ...]) -> dict[str, str | bool]:
     index = 0
     while index < len(arguments):
         token = arguments[index]
-        if not token.startswith("--"):
+        if not _is_option(token):
             raise ValueError(f"unexpected positional server argument: {token}")
         if "=" in token:
             key, value = token.split("=", 1)
             normalized[key] = value
-        elif index + 1 < len(arguments) and not arguments[index + 1].startswith("--"):
+        elif index + 1 < len(arguments) and not _is_option(arguments[index + 1]):
             normalized[token] = arguments[index + 1]
             index += 1
         else:
@@ -247,8 +261,30 @@ def wait_until_ready(process: subprocess.Popen[str], base_url: str, timeout: flo
     raise TimeoutError(f"vLLM did not become ready within {timeout}s: {last_error}; log={log_path}")
 
 
+def port_in_use(base_url: str) -> bool:
+    parts = urlsplit(base_url)
+    try:
+        with socket.create_connection((parts.hostname or "127.0.0.1", parts.port or 80), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def _signal_group(process: subprocess.Popen[str], signum: int) -> None:
+    try:
+        os.killpg(process.pid, signum)
+    except ProcessLookupError:  # exited between poll() and the signal
+        pass
+
+
 @contextmanager
 def managed_server(command: list[str], base_url: str, timeout: float, log_path: Path) -> Iterator[None]:
+    # A leftover server on the port would answer the health check and be
+    # benchmarked in place of the configuration under test.
+    if port_in_use(base_url):
+        raise RuntimeError(
+            f"{base_url} already has a listener; stop it (for example a stale vLLM server) and retry"
+        )
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("w", encoding="utf-8", newline="\n") as log:
         process = subprocess.Popen(
@@ -264,17 +300,25 @@ def managed_server(command: list[str], base_url: str, timeout: float, log_path: 
             yield
         finally:
             if process.poll() is None:
-                os.killpg(process.pid, signal.SIGINT)
+                _signal_group(process, signal.SIGINT)
                 try:
                     process.wait(timeout=30)
                 except subprocess.TimeoutExpired:
-                    os.killpg(process.pid, signal.SIGKILL)
+                    _signal_group(process, signal.SIGKILL)
                     process.wait(timeout=10)
 
 
-def run_checked(command: list[str]) -> None:
+def run_checked(command: list[str], allowed_codes: tuple[int, ...] = (0,)) -> int:
     print("+", shlex.join(command), flush=True)
-    subprocess.run(command, check=True)
+    code = subprocess.run(command, check=False).returncode
+    if code not in allowed_codes:
+        raise subprocess.CalledProcessError(code, command)
+    return code
+
+
+# rtx4080_replay.py exits 3 when requests failed but the JSONL is complete.
+# Failed requests are evidence for the reject_failures gate, not a crash.
+REPLAY_RECORDED_FAILURES = 3
 
 
 def run_stage(
@@ -305,7 +349,7 @@ def run_stage(
     command = server_command(config, port)
     print(f"\n[{label}] starting server\n+ {shlex.join(command)}", flush=True)
     with managed_server(command, base_url, startup_timeout, run_dir / f"{label}-server.log"):
-        run_checked(
+        code = run_checked(
             [
                 sys.executable,
                 str(ROOT / "scripts/rtx4080_replay.py"),
@@ -327,8 +371,11 @@ def run_stage(
                 str(warmup_conversations),
                 "--output",
                 str(output),
-            ]
+            ],
+            allowed_codes=(0, REPLAY_RECORDED_FAILURES),
         )
+    if code == REPLAY_RECORDED_FAILURES:
+        print(f"[{label}] some requests failed; they are recorded in {output.name}", flush=True)
     return output
 
 
@@ -490,7 +537,24 @@ def main() -> int:
         raise SystemExit("port, timeouts and workload parameters must be positive")
     if args.warmup_conversations < 0:
         raise SystemExit("warmup-conversations cannot be negative")
+    install_shutdown_handlers()
     return execute_run(args)
+
+
+def install_shutdown_handlers() -> None:
+    """Make SIGTERM/SIGHUP unwind normally so managed_server stops vLLM.
+
+    The server runs in its own session and never sees the terminal hang-up.
+    Python's default handlers exit without running ``finally`` blocks, which
+    would orphan the server with its GPU memory and port.
+    """
+
+    def exit_cleanly(signum: int, _frame: object) -> None:
+        raise SystemExit(128 + signum)
+
+    for name in ("SIGTERM", "SIGHUP"):
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), exit_cleanly)
 
 
 if __name__ == "__main__":

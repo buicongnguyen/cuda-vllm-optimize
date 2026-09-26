@@ -64,75 +64,135 @@ def aggregate_metric(values: Iterable[float]) -> dict[str, float | int]:
     }
 
 
-def paired_deltas(baseline: RunData, candidate: RunData, metric: str) -> list[float]:
-    shared = sorted(baseline.requests.keys() & candidate.requests.keys())
-    deltas: list[float] = []
-    for request_id in shared:
+def failed_requests(run: RunData) -> int:
+    return sum(1 for record in run.requests.values() if record.get("error") is not None)
+
+
+# Summary fields that define the workload. Runs that differ in any of them share
+# request ids but not prompts, arrival times or output limits, so pairing by id
+# would compare different requests.
+WORKLOAD_KEYS = ("model", "seed", "request_rate", "conversations", "turns", "max_tokens")
+
+
+def check_comparable(baseline: RunData, candidate: RunData) -> None:
+    mismatched = [
+        f"{key}: {baseline.summary[key]!r} vs {candidate.summary[key]!r}"
+        for key in WORKLOAD_KEYS
+        if key in baseline.summary
+        and key in candidate.summary
+        and baseline.summary[key] != candidate.summary[key]
+    ]
+    if baseline.requests.keys() != candidate.requests.keys():
+        mismatched.append(
+            f"request ids differ ({len(baseline.requests.keys() ^ candidate.requests.keys())} unpaired)"
+        )
+    if mismatched:
+        raise ValueError(
+            f"{baseline.path} and {candidate.path} are not the same workload: " + "; ".join(mismatched)
+        )
+
+
+def paired_rows(baseline: RunData, candidate: RunData, metric: str) -> list[tuple[Any, float]]:
+    """(conversation, candidate - baseline) for requests valid in both runs."""
+
+    rows: list[tuple[Any, float]] = []
+    for request_id in sorted(baseline.requests.keys() & candidate.requests.keys()):
         before = baseline.requests[request_id]
         after = candidate.requests[request_id]
         if before.get("error") is not None or after.get("error") is not None:
             continue
         if before.get(metric) is None or after.get(metric) is None:
             continue
-        deltas.append(float(after[metric]) - float(before[metric]))
-    if not deltas:
+        cluster = before.get("conversation_id", request_id)
+        rows.append((cluster, float(after[metric]) - float(before[metric])))
+    if not rows:
         raise ValueError(f"no paired observations for {metric}")
-    return deltas
+    return rows
+
+
+def paired_deltas(baseline: RunData, candidate: RunData, metric: str) -> list[float]:
+    return [delta for _, delta in paired_rows(baseline, candidate, metric)]
 
 
 def bootstrap_mean_ci(
     values: list[float],
     *,
+    clusters: list[Any] | None = None,
     confidence: float = 0.95,
     samples: int = 2_000,
     seed: int = 2025,
 ) -> tuple[float, float]:
+    """Percentile bootstrap CI of the mean.
+
+    With ``clusters`` whole clusters are resampled. Turns of one conversation
+    share history and server state, so resampling them as independent requests
+    would understate the uncertainty.
+    """
+
     if not values:
         raise ValueError("cannot bootstrap an empty sample")
     if samples < 100:
         raise ValueError("bootstrap samples must be at least 100")
+    if clusters is not None and len(clusters) != len(values):
+        raise ValueError("clusters must label every value")
+    groups: dict[Any, list[float]] = {}
+    for index, value in enumerate(values):
+        groups.setdefault(index if clusters is None else clusters[index], []).append(value)
+    totals = [(sum(group), len(group)) for group in groups.values()]
     rng = random.Random(seed)
-    size = len(values)
-    means = sorted(fmean(values[rng.randrange(size)] for _ in range(size)) for _ in range(samples))
+    count = len(totals)
+    means: list[float] = []
+    for _ in range(samples):
+        picked = [totals[rng.randrange(count)] for _ in range(count)]
+        means.append(sum(total for total, _ in picked) / sum(n for _, n in picked))
+    means.sort()
     tail = (1.0 - confidence) / 2.0
     return percentile(means, tail), percentile(means, 1.0 - tail)
 
 
 def comparison(baseline: RunData, candidate: RunData, seed: int, samples: int) -> dict[str, Any]:
+    check_comparable(baseline, candidate)
     report: dict[str, Any] = {
         "baseline": str(baseline.path),
         "candidate": str(candidate.path),
         "interpretation": "delta = candidate - baseline; negative latency delta is faster",
+        "bootstrap": "percentile, resampling whole conversations",
         "failures": {
-            "baseline": int(baseline.summary.get("failed", 0)),
-            "candidate": int(candidate.summary.get("failed", 0)),
+            "baseline": failed_requests(baseline),
+            "candidate": failed_requests(candidate),
         },
         "metrics": {},
     }
+    means: dict[str, dict[str, float]] = {}
     for index, metric in enumerate(("ttft_ms", "tpot_ms")):
-        deltas = paired_deltas(baseline, candidate, metric)
+        rows = paired_rows(baseline, candidate, metric)
+        deltas = [delta for _, delta in rows]
         ci_low, ci_high = bootstrap_mean_ci(
             deltas,
+            clusters=[cluster for cluster, _ in rows],
             samples=samples,
             seed=seed + index,
         )
+        before = aggregate_metric(metric_values(baseline, metric))
+        after = aggregate_metric(metric_values(candidate, metric))
+        means[metric] = {"baseline": float(before["mean"]), "candidate": float(after["mean"])}
         report["metrics"][metric] = {
-            "baseline": aggregate_metric(metric_values(baseline, metric)),
-            "candidate": aggregate_metric(metric_values(candidate, metric)),
+            "baseline": before,
+            "candidate": after,
             "paired_n": len(deltas),
+            "paired_clusters": len({cluster for cluster, _ in rows}),
             "paired_delta_mean": fmean(deltas),
             "paired_delta_median": median(deltas),
             "paired_delta_p95": percentile(deltas, 0.95),
             "bootstrap_mean_delta_95ci": [ci_low, ci_high],
             "direction": "faster" if ci_high < 0 else "slower" if ci_low > 0 else "uncertain",
         }
-    candidate_ttft = float(candidate.summary["ttft_ms"])
-    candidate_tpot = float(candidate.summary["tpot_ms"])
+    # Score both runs from the same request-level means rather than trusting
+    # each summary, whose aggregation (--aggregate) may differ between runs.
     report["quoted_ers"] = {
-        "baseline": effective_request_score(
-            float(baseline.summary["ttft_ms"]), float(baseline.summary["tpot_ms"])
-        ),
-        "candidate": effective_request_score(candidate_ttft, candidate_tpot),
+        "aggregation": "mean over successful requests",
+        "baseline": effective_request_score(means["ttft_ms"]["baseline"], means["tpot_ms"]["baseline"]),
+        "candidate": effective_request_score(means["ttft_ms"]["candidate"], means["tpot_ms"]["candidate"]),
     }
     report["quoted_ers"]["delta"] = report["quoted_ers"]["candidate"] - report["quoted_ers"]["baseline"]
     return report
@@ -193,11 +253,12 @@ def overall_decision(
     confounded_metrics: list[str] = []
     for metric, evidence in candidate_report["metrics"].items():
         candidate_delta = float(evidence["paired_delta_mean"])
-        drift_evidence = drift_report["metrics"][metric]
-        drift_delta = float(drift_evidence["paired_delta_mean"])
+        drift_delta = float(drift_report["metrics"][metric]["paired_delta_mean"])
+        # A baseline that improved by as much as the candidate explains the
+        # gain even when that drift is too noisy for its own CI to exclude 0.
         if (
             evidence["direction"] == "faster"
-            and drift_evidence["direction"] == "faster"
+            and drift_delta < 0
             and abs(drift_delta) >= abs(candidate_delta)
         ):
             confounded_metrics.append(metric)
@@ -206,6 +267,8 @@ def overall_decision(
         warnings.append(
             "R0-prime ERS improved at least as much as the candidate versus initial R0."
         )
+    if drift_report["failures"]["candidate"] > drift_report["failures"]["baseline"]:
+        warnings.append("R0-prime failed more requests than R0; the environment was not stable.")
     if confounded_metrics:
         warnings.append(
             "Baseline-return drift matches or exceeds candidate mean improvement for: "
@@ -226,9 +289,26 @@ def overall_decision(
             "warnings": ["Both latency confidence intervals cross zero."],
         }
 
+    # One faster metric does not make a better score: TPOT has ~32x the
+    # per-millisecond weight of TTFT near 47/4 ms. Compare B with the R0/R0'
+    # midpoint, which cancels drift that is linear in time.
+    bracketed_ers_delta = float(candidate_report["quoted_ers"]["candidate"]) - (
+        float(candidate_report["quoted_ers"]["baseline"]) + float(drift_report["quoted_ers"]["candidate"])
+    ) / 2
+    if bracketed_ers_delta <= 0:
+        return {
+            "classification": "no_score_gain",
+            "promote": False,
+            "bracketed_ers_delta": bracketed_ers_delta,
+            "warnings": [
+                "A latency metric improved, but quoted-formula ERS does not exceed the R0/R0-prime midpoint."
+            ],
+        }
+
     return {
         "classification": "candidate_faster_pending_correctness",
         "promote": False,
+        "bracketed_ers_delta": bracketed_ers_delta,
         "warnings": [
             "Performance signal passed drift checks; correctness and repeated-block gates remain."
         ],

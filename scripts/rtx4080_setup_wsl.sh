@@ -5,14 +5,18 @@ SOURCE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_DIR="$SOURCE_ROOT"
 SOURCE_GIT_SHA="$(git -c safe.directory="$SOURCE_ROOT" -C "$SOURCE_ROOT" rev-parse HEAD 2>/dev/null || true)"
 # Results from an uncommitted tree must not be attributed to a clean commit.
-if [[ -n "$SOURCE_GIT_SHA" ]] && [[ -n "$(git -c safe.directory="$SOURCE_ROOT" -C "$SOURCE_ROOT" status --porcelain --untracked-files=no 2>/dev/null)" ]]; then
+if [[ -n "$SOURCE_GIT_SHA" ]] && [[ -n "$(git -c safe.directory="$SOURCE_ROOT" -C "$SOURCE_ROOT" status --porcelain --untracked-files=normal 2>/dev/null)" ]]; then
   SOURCE_GIT_SHA="$SOURCE_GIT_SHA-dirty"
 fi
 RUN_MODE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --run)
-      RUN_MODE="${2:-}"
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --run needs a mode: smoke, baseline or aba" >&2
+        exit 2
+      fi
+      RUN_MODE="$2"
       shift 2
       ;;
     *)

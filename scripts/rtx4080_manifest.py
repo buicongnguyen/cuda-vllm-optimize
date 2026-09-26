@@ -41,14 +41,17 @@ def source_git_state() -> tuple[str | None, bool | None]:
     """Return (HEAD sha, tree has uncommitted tracked changes).
 
     A bare HEAD sha misattributes results produced from an uncommitted tree, so
-    the dirty flag travels with it. The WSL mirror has no .git; the setup
+    the dirty flag travels with it. Untracked files count: new scripts are
+    copied into the mirror and run. The WSL mirror has no .git; the setup
     script writes ``<sha>`` or ``<sha>-dirty`` to ``.source-git-sha`` instead.
     """
 
     git = ["git", "-c", f"safe.directory={ROOT}", "-C", str(ROOT)]
-    sha = command_output([*git, "rev-parse", "HEAD"])
+    # Without its own .git (the rsync mirror), git would climb to a parent
+    # repository such as a dotfiles repo in $HOME and report its HEAD.
+    sha = command_output([*git, "rev-parse", "HEAD"]) if (ROOT / ".git").exists() else None
     if sha:
-        status = command_output([*git, "status", "--porcelain", "--untracked-files=no"])
+        status = command_output([*git, "status", "--porcelain", "--untracked-files=normal"])
         return sha, None if status is None else bool(status)
     marker = ROOT / ".source-git-sha"
     if marker.is_file():

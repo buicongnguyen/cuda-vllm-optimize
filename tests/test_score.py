@@ -21,6 +21,11 @@ class ScoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             effective_request_score(-1, 4)
 
+    def test_non_finite_latency_rejected(self) -> None:
+        for value in (float("nan"), float("inf")):
+            with self.assertRaisesRegex(ValueError, "finite"):
+                effective_request_score(value, 4)
+
     def test_weights_must_sum_to_one(self) -> None:
         with self.assertRaises(ValueError):
             ScorePolicy(ttft_weight=0.7, tpot_weight=0.7)

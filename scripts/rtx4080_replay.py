@@ -42,6 +42,15 @@ WARMUP_TURNS = [
     "Add the numbers you just listed.",
 ]
 
+# Exit status when some requests failed but every result was written.
+RECORDED_FAILURES_EXIT = 3
+
+
+def render_prompt(template: str, conversation_id: int, turn: int) -> str:
+    """Fill {conversation_id}/{turn}; other braces (e.g. JSON examples) stay literal."""
+
+    return template.replace("{conversation_id}", str(conversation_id)).replace("{turn}", str(turn))
+
 
 @dataclass
 class ReplayResult:
@@ -53,6 +62,7 @@ class ReplayResult:
     first_token_s: float | None
     last_content_s: float | None
     last_token_s: float | None
+    prompt_tokens: int | None
     output_tokens: int | None
     content_events: int | None
     token_count_source: str | None
@@ -70,6 +80,7 @@ class StreamOutcome:
     first_token: float
     last_content: float
     last_token: float
+    prompt_tokens: int | None
     output_tokens: int
     content_events: int
     token_count_source: str
@@ -127,6 +138,7 @@ async def stream_chat(
     text_parts: list[str] = []
     content_events = 0
     completion_tokens: int | None = None
+    prompt_tokens: int | None = None
 
     async with client.stream("POST", endpoint, json=payload) as response:
         status_code = response.status_code
@@ -135,9 +147,17 @@ async def stream_chat(
             event = parse_sse_line(line)
             if event is None:
                 continue
+            # vLLM reports engine failures inside an HTTP 200 stream as an
+            # error payload followed by [DONE]; that is a failed request.
+            if "error" in event or event.get("object") == "error":
+                detail = event.get("error", event)
+                message = detail.get("message", detail) if isinstance(detail, dict) else detail
+                raise RuntimeError(f"server error in stream: {message}")
             usage = event.get("usage")
             if isinstance(usage, dict) and isinstance(usage.get("completion_tokens"), int):
                 completion_tokens = usage["completion_tokens"]
+                if isinstance(usage.get("prompt_tokens"), int):
+                    prompt_tokens = usage["prompt_tokens"]
             choices = event.get("choices") or []
             if not choices:
                 continue
@@ -156,6 +176,10 @@ async def stream_chat(
 
     if first_token is None or last_content is None:
         raise RuntimeError("stream completed without a content-bearing chunk")
+    if finish_reason is None:
+        # A complete OpenAI-style stream always ends with a finish_reason;
+        # without it the response was cut off and its timings are not comparable.
+        raise RuntimeError("stream ended without a finish_reason (truncated response)")
     if completion_tokens is None:
         completion_tokens = content_events
         token_source = "content_event_fallback"
@@ -172,6 +196,7 @@ async def stream_chat(
         first_token=first_token,
         last_content=last_content,
         last_token=last_token,
+        prompt_tokens=prompt_tokens,
         output_tokens=completion_tokens,
         content_events=content_events,
         token_count_source=token_source,
@@ -193,8 +218,8 @@ async def warm_up(
 
     async def conversation(conversation_id: int) -> int:
         history: list[dict[str, str]] = []
-        for template in WARMUP_TURNS:
-            user_text = template.format(conversation_id=conversation_id)
+        for turn, template in enumerate(WARMUP_TURNS, start=1):
+            user_text = render_prompt(template, conversation_id, turn)
             messages = [*history, {"role": "user", "content": user_text}]
             outcome = await stream_chat(client, endpoint, model, messages, max_tokens)
             history.extend(
@@ -263,9 +288,8 @@ async def replay(args: argparse.Namespace) -> tuple[list[ReplayResult], dict[str
                 await asyncio.sleep(remaining)
 
             history = histories[arrival.conversation_id]
-            user_text = prompts[arrival.turn - 1].format(
-                conversation_id=arrival.conversation_id,
-                turn=arrival.turn,
+            user_text = render_prompt(
+                prompts[arrival.turn - 1], arrival.conversation_id, arrival.turn
             )
             messages = [*history, {"role": "user", "content": user_text}]
             result = empty_result(arrival)
@@ -282,6 +306,7 @@ async def replay(args: argparse.Namespace) -> tuple[list[ReplayResult], dict[str
                 result.first_token_s = outcome.first_token - run_started
                 result.last_content_s = outcome.last_content - run_started
                 result.last_token_s = outcome.last_token - run_started
+                result.prompt_tokens = outcome.prompt_tokens
                 result.output_tokens = outcome.output_tokens
                 result.content_events = outcome.content_events
                 result.token_count_source = outcome.token_count_source
@@ -312,6 +337,9 @@ async def replay(args: argparse.Namespace) -> tuple[list[ReplayResult], dict[str
         "base_url": args.base_url,
         "seed": args.seed,
         "request_rate": args.rate,
+        "conversations": args.conversations,
+        "turns": args.turns,
+        "max_tokens": args.max_tokens,
         "requested": len(results),
         "successful": len(successful),
         "failed": len(results) - len(successful),
@@ -320,22 +348,25 @@ async def replay(args: argparse.Namespace) -> tuple[list[ReplayResult], dict[str
         "finish_reasons": dict(Counter(item.finish_reason or "none" for item in successful)),
         "note": "Local emulator; not the unpublished contest evaluator.",
     }
-    if metric_ready:
+    if successful:
+        # TTFT covers every successful request; single-token responses only
+        # drop out of the TPOT aggregate, which has no interval for them.
         timings = [
             RequestTiming(
                 item.request_id,
-                item.submitted_s or 0.0,
-                item.first_token_s or 0.0,
-                item.last_token_s or 0.0,
-                item.output_tokens or 1,
+                item.submitted_s,
+                item.first_token_s,
+                item.last_token_s,
+                item.output_tokens,
             )
-            for item in metric_ready
+            for item in successful
         ]
         metrics = summarize_requests(timings, args.aggregate)
         summary.update(metrics)
-        summary["ers_from_quoted_formula"] = effective_request_score(
-            float(metrics["ttft_ms"]), float(metrics["tpot_ms"])
-        )
+        if metrics["tpot_ms"] is not None:
+            summary["ers_from_quoted_formula"] = effective_request_score(
+                float(metrics["ttft_ms"]), float(metrics["tpot_ms"])
+            )
     return results, summary
 
 
@@ -349,6 +380,7 @@ def empty_result(arrival: Arrival, error: str | None = None) -> ReplayResult:
         first_token_s=None,
         last_content_s=None,
         last_token_s=None,
+        prompt_tokens=None,
         output_tokens=None,
         content_events=None,
         token_count_source=None,
@@ -402,7 +434,8 @@ def main() -> int:
     write_results(args.output, results, summary)
     print(json.dumps(summary, indent=2))
     print(f"wrote {args.output}")
-    return 0 if summary["failed"] == 0 else 2
+    # 3, not 2: argparse already exits 2 on usage errors.
+    return 0 if summary["failed"] == 0 else RECORDED_FAILURES_EXIT
 
 
 if __name__ == "__main__":

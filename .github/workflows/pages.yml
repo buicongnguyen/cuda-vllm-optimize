@@ -17,9 +17,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+      # ci.yml runs in parallel and cannot block this deploy, so gate on tests here.
+      - run: python -m pip install -e .
+      - run: python -m unittest discover -s tests
       - run: python scripts/check_site.py docs
       - run: node --check docs/assets/site.js
 
@@ -35,8 +38,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: docs
       - name: Deploy
